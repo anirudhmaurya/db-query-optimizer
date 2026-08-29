@@ -120,9 +120,9 @@ class LLMProvider:
 
 
 class GeminiProvider(LLMProvider):
-    """Google Gemini API provider (e.g. Gemini 3.6 Flash, Gemini 2.0 Flash) using native urllib HTTP with retries."""
+    """Google Gemini API provider (e.g. Gemini 3.6 Flash) using native urllib HTTP with intelligent rate-limit backoff."""
 
-    def __init__(self, api_key: str, model: str = "gemini-3.6-flash", max_retries: int = 3, timeout_sec: float = 60.0):
+    def __init__(self, api_key: str, model: str = "gemini-3.6-flash", max_retries: int = 5, timeout_sec: float = 60.0):
         self.api_key = api_key
         self.model = model
         self.max_retries = max_retries
@@ -159,19 +159,32 @@ class GeminiProvider(LLMProvider):
                     parts = candidates[0].get("content", {}).get("parts", [])
                     if not parts:
                         raise RuntimeError(f"Gemini API returned empty parts: {res_data}")
+                    # Brief pacing sleep to avoid bursting free tier RPM
+                    time.sleep(1.0)
                     return parts[0].get("text", "")
             except urllib.error.HTTPError as e:
                 error_body = e.read().decode("utf-8", errors="replace")
                 last_error = RuntimeError(f"Gemini API error ({e.code}): {error_body}")
-                # Retry on 429 (Too Many Requests) or 5xx server errors
-                if e.code in (429, 500, 503, 504) and attempt < self.max_retries:
-                    time.sleep(2.0 * attempt)
+                
+                # Check for 429 Rate Limit
+                if e.code == 429 and attempt < self.max_retries:
+                    # Extract suggested retry delay if available in error message
+                    delay_match = re.search(r"retry in (\d+(?:\.\d+)?)s", error_body, re.IGNORECASE)
+                    if not delay_match:
+                        delay_match = re.search(r'"retryDelay":\s*"(\d+)s"', error_body)
+                    sleep_time = float(delay_match.group(1)) + 2.0 if delay_match else (20.0 + attempt * 5.0)
+                    print(f"  ⏳ Gemini API rate limit hit (429). Pausing {sleep_time:.1f}s before retry {attempt}/{self.max_retries}...")
+                    time.sleep(sleep_time)
+                    continue
+
+                if e.code in (500, 503, 504) and attempt < self.max_retries:
+                    time.sleep(3.0 * attempt)
                     continue
                 raise last_error from e
             except Exception as e:
                 last_error = e
                 if attempt < self.max_retries:
-                    time.sleep(2.0 * attempt)
+                    time.sleep(3.0 * attempt)
                     continue
                 raise RuntimeError(f"Failed to communicate with Gemini API after {self.max_retries} attempts: {e}") from e
 

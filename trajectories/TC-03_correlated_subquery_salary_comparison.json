@@ -1,0 +1,337 @@
+{
+  "test_case_id": "TC-03",
+  "test_case_name": "correlated_subquery_salary_comparison",
+  "anti_pattern": "Correlated subqueries calculating group averages instead of Window Functions / CTEs",
+  "model": "mock-orchestrator",
+  "start_time": "2026-08-29T18:26:57Z",
+  "original_query": "SELECT e.id, e.name, e.department_id, e.salary,        (SELECT AVG(e2.salary) FROM employees e2 WHERE e2.department_id = e.department_id) AS dept_avg_salary FROM employees e WHERE e.salary > (SELECT AVG(e3.salary) * 1.15 FROM employees e3 WHERE e3.department_id = e.department_id) ORDER BY e.salary DESC;",
+  "stages": {
+    "profiler": {
+      "initial_explain_plan": [
+        {
+          "id": 3,
+          "parent_id": 0,
+          "detail": "SCAN e",
+          "operation_type": "SCAN",
+          "table": "e",
+          "index": null,
+          "is_scan": true,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 8,
+          "parent_id": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 2",
+          "operation_type": "SUBQUERY",
+          "table": null,
+          "index": null,
+          "is_scan": false,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 13,
+          "parent_id": 8,
+          "detail": "SCAN e3",
+          "operation_type": "SCAN",
+          "table": "e3",
+          "index": null,
+          "is_scan": true,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 31,
+          "parent_id": 0,
+          "detail": "CORRELATED SCALAR SUBQUERY 1",
+          "operation_type": "SUBQUERY",
+          "table": null,
+          "index": null,
+          "is_scan": false,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 36,
+          "parent_id": 31,
+          "detail": "SCAN e2",
+          "operation_type": "SCAN",
+          "table": "e2",
+          "index": null,
+          "is_scan": true,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 55,
+          "parent_id": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY",
+          "operation_type": "TEMP_BTREE",
+          "table": null,
+          "index": null,
+          "is_scan": false,
+          "is_search": false,
+          "uses_temp_btree": true,
+          "uses_covering_index": false
+        }
+      ],
+      "profiler_report": {
+        "identified_bottlenecks": [
+          {
+            "type": "FULL_TABLE_SCAN",
+            "table": "e",
+            "detail": "Sequential scan on e table across full dataset.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "FULL_TABLE_SCAN",
+            "table": "e3",
+            "detail": "Sequential scan on e3 table across full dataset.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "FULL_TABLE_SCAN",
+            "table": "e2",
+            "detail": "Sequential scan on e2 table across full dataset.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "TEMP_BTREE_SORT",
+            "table": null,
+            "detail": "Temporary B-Tree created for sorting or grouping.",
+            "severity": "MEDIUM"
+          },
+          {
+            "type": "CORRELATED_SUBQUERY",
+            "table": "employees",
+            "detail": "Correlated subquery evaluating quadratic average salary per row.",
+            "severity": "HIGH"
+          }
+        ],
+        "critical_tables": [
+          "e2",
+          "e",
+          "e3"
+        ],
+        "has_temp_btree_sort": true,
+        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
+        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.name, e.department_id, e.salary,        (SELECT AVG(e2.salary) FROM employees e2 WHERE e2.department_id = e.department_id) AS dept_avg_salary FROM employees e WHERE e.salary > (SELECT AVG(e3.salary) * 1.15 FROM employees e3 WHERE e3.department_id = e.department_id) ORDER BY e.salary DESC;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 3,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN e\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 8,\n    \"parent_id\": 0,\n    \"detail\": \"CORRELATED SCALAR SUBQUERY 2\",\n    \"operation_type\": \"SUBQUERY\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 13,\n    \"parent_id\": 8,\n    \"detail\": \"SCAN e3\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e3\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 31,\n    \"parent_id\": 0,\n    \"detail\": \"CORRELATED SCALAR SUBQUERY 1\",\n    \"operation_type\": \"SUBQUERY\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 36,\n    \"parent_id\": 31,\n    \"detail\": \"SCAN e2\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e2\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 55,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
+      },
+      "elapsed_sec": 0.0
+    },
+    "index_architect": {
+      "architect_report": {
+        "recommended_indexes": [],
+        "rationale": "Created composite indexes covering primary join predicates and filter columns.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.name, e.department_id, e.salary,        (SELECT AVG(e2.salary) FROM employees e2 WHERE e2.department_id = e.department_id) AS dept_avg_salary FROM employees e WHERE e.salary > (SELECT AVG(e3.salary) * 1.15 FROM employees e3 WHERE e3.department_id = e.department_id) ORDER BY e.salary DESC;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e3\",\n    \"detail\": \"Sequential scan on e3 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e2\",\n    \"detail\": \"Sequential scan on e2 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"employees\",\n    \"detail\": \"Correlated subquery evaluating quadratic average salary per row.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "applied_indexes": [],
+        "failed_indexes": [],
+        "post_index_plan": [
+          {
+            "id": 3,
+            "parent_id": 0,
+            "detail": "SCAN e",
+            "operation_type": "SCAN",
+            "table": "e",
+            "index": null,
+            "is_scan": true,
+            "is_search": false,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 8,
+            "parent_id": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 2",
+            "operation_type": "SUBQUERY",
+            "table": null,
+            "index": null,
+            "is_scan": false,
+            "is_search": false,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 13,
+            "parent_id": 8,
+            "detail": "SCAN e3",
+            "operation_type": "SCAN",
+            "table": "e3",
+            "index": null,
+            "is_scan": true,
+            "is_search": false,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 31,
+            "parent_id": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1",
+            "operation_type": "SUBQUERY",
+            "table": null,
+            "index": null,
+            "is_scan": false,
+            "is_search": false,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 36,
+            "parent_id": 31,
+            "detail": "SCAN e2",
+            "operation_type": "SCAN",
+            "table": "e2",
+            "index": null,
+            "is_scan": true,
+            "is_search": false,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 55,
+            "parent_id": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY",
+            "operation_type": "TEMP_BTREE",
+            "table": null,
+            "index": null,
+            "is_scan": false,
+            "is_search": false,
+            "uses_temp_btree": true,
+            "uses_covering_index": false
+          }
+        ],
+        "scans_remaining": [
+          "e",
+          "e3",
+          "e2"
+        ]
+      },
+      "applied_indexes": [],
+      "elapsed_sec": 0.0
+    },
+    "developer_verifier_loop": {
+      "total_attempts": 1,
+      "succeeded": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "developer_report": {
+            "rewritten_sql": "WITH dept_stats AS (\n    SELECT id, name, department_id, salary,\n           AVG(salary) OVER(PARTITION BY department_id) AS dept_avg_salary\n    FROM employees\n)\nSELECT id, name, department_id, salary, dept_avg_salary\nFROM dept_stats\nWHERE salary > (dept_avg_salary * 1.15)\nORDER BY salary DESC;",
+            "applied_techniques": [
+              "Window Function (AVG OVER PARTITION)",
+              "CTE Common Table Expression"
+            ],
+            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.name, e.department_id, e.salary,        (SELECT AVG(e2.salary) FROM employees e2 WHERE e2.department_id = e.department_id) AS dept_avg_salary FROM employees e WHERE e.salary > (SELECT AVG(e3.salary) * 1.15 FROM employees e3 WHERE e3.department_id = e.department_id) ORDER BY e.salary DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e3\",\n    \"detail\": \"Sequential scan on e3 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e2\",\n    \"detail\": \"Sequential scan on e2 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"employees\",\n    \"detail\": \"Correlated subquery evaluating quadratic average salary per row.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
+          },
+          "verification_report": {
+            "status": "PASSED",
+            "is_equivalent": true,
+            "error_stage": null,
+            "error_details": null,
+            "feedback_for_developer": null,
+            "original_time_ms": 1046.501,
+            "optimized_time_ms": 5.262,
+            "speedup_ratio": 198.88,
+            "original_row_count": 1506,
+            "optimized_row_count": 1506,
+            "verification_message": "Result sets match perfectly as multiset (1506 rows).",
+            "post_explain_plan": [
+              {
+                "id": 2,
+                "parent_id": 0,
+                "detail": "CO-ROUTINE dept_stats",
+                "operation_type": "OTHER",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 5,
+                "parent_id": 2,
+                "detail": "CO-ROUTINE (subquery-3)",
+                "operation_type": "SUBQUERY",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 8,
+                "parent_id": 5,
+                "detail": "SCAN employees",
+                "operation_type": "SCAN",
+                "table": "employees",
+                "index": null,
+                "is_scan": true,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 21,
+                "parent_id": 5,
+                "detail": "USE TEMP B-TREE FOR ORDER BY",
+                "operation_type": "TEMP_BTREE",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": true,
+                "uses_covering_index": false
+              },
+              {
+                "id": 40,
+                "parent_id": 2,
+                "detail": "SCAN (subquery-3)",
+                "operation_type": "SCAN",
+                "table": null,
+                "index": null,
+                "is_scan": true,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 101,
+                "parent_id": 0,
+                "detail": "SCAN dept_stats",
+                "operation_type": "SCAN",
+                "table": "dept_stats",
+                "index": null,
+                "is_scan": true,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 118,
+                "parent_id": 0,
+                "detail": "USE TEMP B-TREE FOR ORDER BY",
+                "operation_type": "TEMP_BTREE",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": true,
+                "uses_covering_index": false
+              }
+            ]
+          },
+          "elapsed_sec": 1.056
+        }
+      ]
+    }
+  }
+}

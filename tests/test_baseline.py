@@ -1,0 +1,91 @@
+"""Unit tests for ZeroShotBaseline and baseline evaluation runner."""
+
+import json
+import sqlite3
+import pytest
+from pathlib import Path
+
+from src.baseline import ZeroShotBaseline, clean_sql_response, run_baseline, LLMProvider
+
+
+class MockTestEchoClient(LLMProvider):
+    """Simple test client returning predictable responses."""
+
+    def __init__(self, response: str = "SELECT 1;"):
+        self.response = response
+        self.last_prompt = ""
+
+    def complete(self, prompt: str) -> str:
+        self.last_prompt = prompt
+        return self.response
+
+
+def test_clean_sql_response_markdown():
+    """Test extracting clean SQL from markdown code fences."""
+    raw = "```sql\nSELECT u.id, u.name FROM users u;\n```"
+    assert clean_sql_response(raw) == "SELECT u.id, u.name FROM users u;"
+
+
+def test_clean_sql_response_multi_statement():
+    """Test extracting primary query from multi-statement LLM response."""
+    raw = (
+        "```sql\n"
+        "-- Suggested Index\n"
+        "CREATE INDEX idx_user ON users(id);\n\n"
+        "-- Query\n"
+        "SELECT * FROM users WHERE id = 1;\n"
+        "```"
+    )
+    assert clean_sql_response(raw) == "SELECT * FROM users WHERE id = 1;"
+
+
+def test_zero_shot_baseline_prompt_format():
+    """Test that ZeroShotBaseline issues the exact ungrounded DBA prompt."""
+    client = MockTestEchoClient("SELECT * FROM users;")
+    optimizer = ZeroShotBaseline(client=client)
+
+    result = optimizer.optimize("SELECT * FROM users;", "CREATE TABLE users (id INT);")
+    assert "You are a DBA. Make this SQL query faster:" in result["prompt"]
+    assert "Here is the schema:" in result["prompt"]
+    assert "Return only the optimized SQL." in result["prompt"]
+    assert result["optimized_sql"] == "SELECT * FROM users;"
+
+
+def test_run_baseline_execution(tmp_path: Path):
+    """Test running baseline evaluation on a mini test suite."""
+    db_file = tmp_path / "baseline_test.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT);")
+    conn.execute("INSERT INTO users VALUES (1, 'Alice'), (2, 'Bob');")
+    conn.commit()
+    conn.close()
+
+    tc_file = tmp_path / "test_cases.json"
+    with open(tc_file, "w") as f:
+        json.dump({
+            "test_cases": [
+                {
+                    "id": "TC-01",
+                    "name": "simple_select",
+                    "anti_pattern": "None",
+                    "query": "SELECT name FROM users WHERE id = 1;"
+                }
+            ]
+        }, f)
+
+    out_file = tmp_path / "results.json"
+    client = MockTestEchoClient("```sql\nSELECT name FROM users WHERE id = 1;\n```")
+    baseline = ZeroShotBaseline(client=client)
+
+    summary = run_baseline(
+        db_path=db_file,
+        test_cases_path=tc_file,
+        output_path=out_file,
+        baseline_optimizer=baseline,
+        quiet=True
+    )
+
+    assert summary["total_cases"] == 1
+    assert summary["successful_cases"] == 1
+    assert summary["results"][0]["status"] == "SUCCESS"
+    assert out_file.exists()

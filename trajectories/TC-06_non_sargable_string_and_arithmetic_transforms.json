@@ -3,7 +3,7 @@
   "test_case_name": "non_sargable_string_and_arithmetic_transforms",
   "anti_pattern": "Non-SARGable string transformations and arithmetic expressions in predicate",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-29T18:26:59Z",
+  "start_time": "2026-08-29T18:36:29Z",
   "original_query": "SELECT u.id, u.name, u.region, COUNT(o.id) AS order_count, SUM(o.amount) AS total_spent FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE UPPER(u.region) = 'EUROPE'   AND (CAST(strftime('%Y', u.signup_date) AS INTEGER) - 2020) >= 4 GROUP BY u.id, u.name, u.region HAVING COUNT(o.id) > 2 ORDER BY total_spent DESC;",
   "stages": {
     "profiler": {
@@ -85,15 +85,15 @@
       "architect_report": {
         "recommended_indexes": [
           {
-            "table": "orders",
-            "ddl": "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);",
-            "purpose": "Covering index for user_id join and status/amount filters."
+            "table": "users",
+            "ddl": "CREATE INDEX IF NOT EXISTS idx_users_region_signup ON users (region, signup_date);",
+            "purpose": "Composite index on region and signup date."
           }
         ],
-        "rationale": "Created composite indexes covering primary join predicates and filter columns.",
+        "rationale": "Created composite covering indexes matching query join and filter columns.",
         "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, COUNT(o.id) AS order_count, SUM(o.amount) AS total_spent FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE UPPER(u.region) = 'EUROPE'   AND (CAST(strftime('%Y', u.signup_date) AS INTEGER) - 2020) >= 4 GROUP BY u.id, u.name, u.region HAVING COUNT(o.id) > 2 ORDER BY total_spent DESC;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
         "applied_indexes": [
-          "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);"
+          "CREATE INDEX IF NOT EXISTS idx_users_region_signup ON users (region, signup_date);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
@@ -110,19 +110,31 @@
             "uses_covering_index": false
           },
           {
-            "id": 18,
+            "id": 20,
             "parent_id": 0,
-            "detail": "SEARCH o USING COVERING INDEX idx_orders_user_status (user_id=?) LEFT-JOIN",
+            "detail": "BLOOM FILTER ON o (user_id=?)",
+            "operation_type": "OTHER",
+            "table": null,
+            "index": null,
+            "is_scan": false,
+            "is_search": false,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 31,
+            "parent_id": 0,
+            "detail": "SEARCH o USING AUTOMATIC COVERING INDEX (user_id=?) LEFT-JOIN",
             "operation_type": "SEARCH",
             "table": "o",
-            "index": "idx_orders_user_status",
+            "index": null,
             "is_scan": false,
             "is_search": true,
             "uses_temp_btree": false,
             "uses_covering_index": true
           },
           {
-            "id": 66,
+            "id": 80,
             "parent_id": 0,
             "detail": "USE TEMP B-TREE FOR ORDER BY",
             "operation_type": "TEMP_BTREE",
@@ -139,9 +151,9 @@
         ]
       },
       "applied_indexes": [
-        "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);"
+        "CREATE INDEX IF NOT EXISTS idx_users_region_signup ON users (region, signup_date);"
       ],
-      "elapsed_sec": 0.009
+      "elapsed_sec": 0.006
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -156,7 +168,7 @@
               "Exact Case Constant Matching"
             ],
             "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id, u.name, u.region, COUNT(o.id) AS order_count, SUM(o.amount) AS total_spent FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE UPPER(u.region) = 'EUROPE'   AND (CAST(strftime('%Y', u.signup_date) AS INTEGER) - 2020) >= 4 GROUP BY u.id, u.name, u.region HAVING COUNT(o.id) > 2 ORDER BY total_spent DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id, u.name, u.region, COUNT(o.id) AS order_count, SUM(o.amount) AS total_spent FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE UPPER(u.region) = 'EUROPE'   AND (CAST(strftime('%Y', u.signup_date) AS INTEGER) - 2020) >= 4 GROUP BY u.id, u.name, u.region HAVING COUNT(o.id) > 2 ORDER BY total_spent DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_users_region_signup ON users (region, signup_date);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
           },
           "verification_report": {
             "status": "PASSED",
@@ -164,19 +176,31 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 3.313,
-            "optimized_time_ms": 2.474,
-            "speedup_ratio": 1.34,
+            "original_time_ms": 14.388,
+            "optimized_time_ms": 1346.258,
+            "speedup_ratio": 0.01,
             "original_row_count": 682,
             "optimized_row_count": 682,
             "verification_message": "Result sets match perfectly as multiset (682 rows).",
             "post_explain_plan": [
               {
-                "id": 8,
+                "id": 9,
                 "parent_id": 0,
-                "detail": "SCAN u",
-                "operation_type": "SCAN",
+                "detail": "SEARCH u USING INDEX idx_users_region_signup (region=? AND signup_date>?)",
+                "operation_type": "SEARCH",
                 "table": "u",
+                "index": "idx_users_region_signup",
+                "is_scan": false,
+                "is_search": true,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 15,
+                "parent_id": 0,
+                "detail": "SCAN o LEFT-JOIN",
+                "operation_type": "SCAN",
+                "table": "o",
                 "index": null,
                 "is_scan": true,
                 "is_search": false,
@@ -184,19 +208,19 @@
                 "uses_covering_index": false
               },
               {
-                "id": 14,
+                "id": 22,
                 "parent_id": 0,
-                "detail": "SEARCH o USING COVERING INDEX idx_orders_user_status (user_id=?) LEFT-JOIN",
-                "operation_type": "SEARCH",
-                "table": "o",
-                "index": "idx_orders_user_status",
+                "detail": "USE TEMP B-TREE FOR GROUP BY",
+                "operation_type": "TEMP_BTREE",
+                "table": null,
+                "index": null,
                 "is_scan": false,
-                "is_search": true,
-                "uses_temp_btree": false,
-                "uses_covering_index": true
+                "is_search": false,
+                "uses_temp_btree": true,
+                "uses_covering_index": false
               },
               {
-                "id": 62,
+                "id": 77,
                 "parent_id": 0,
                 "detail": "USE TEMP B-TREE FOR ORDER BY",
                 "operation_type": "TEMP_BTREE",
@@ -209,7 +233,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.008
+          "elapsed_sec": 1.362
         }
       ]
     }

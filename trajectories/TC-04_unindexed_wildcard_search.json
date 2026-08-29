@@ -3,7 +3,7 @@
   "test_case_name": "unindexed_wildcard_search",
   "anti_pattern": "Unindexed LIKE with leading wildcard on JSON payload and names",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-29T18:26:59Z",
+  "start_time": "2026-08-29T18:36:29Z",
   "original_query": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
   "stages": {
     "profiler": {
@@ -74,31 +74,31 @@
         "recommended_indexes": [
           {
             "table": "events",
-            "ddl": "CREATE INDEX IF NOT EXISTS idx_events_type_created ON events (event_type, created_at);",
-            "purpose": "Range index on event_type and timestamp."
+            "ddl": "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);",
+            "purpose": "Index timestamp sorting and user join key."
           }
         ],
-        "rationale": "Created composite indexes covering primary join predicates and filter columns.",
+        "rationale": "Created composite covering indexes matching query join and filter columns.",
         "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
         "applied_indexes": [
-          "CREATE INDEX IF NOT EXISTS idx_events_type_created ON events (event_type, created_at);"
+          "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
-            "id": 5,
+            "id": 6,
             "parent_id": 0,
-            "detail": "SCAN e",
+            "detail": "SCAN e USING INDEX idx_events_created_user",
             "operation_type": "SCAN",
             "table": "e",
-            "index": null,
+            "index": "idx_events_created_user",
             "is_scan": true,
             "is_search": false,
             "uses_temp_btree": false,
             "uses_covering_index": false
           },
           {
-            "id": 13,
+            "id": 15,
             "parent_id": 0,
             "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
             "operation_type": "SEARCH",
@@ -108,18 +108,6 @@
             "is_search": true,
             "uses_temp_btree": false,
             "uses_covering_index": false
-          },
-          {
-            "id": 33,
-            "parent_id": 0,
-            "detail": "USE TEMP B-TREE FOR ORDER BY",
-            "operation_type": "TEMP_BTREE",
-            "table": null,
-            "index": null,
-            "is_scan": false,
-            "is_search": false,
-            "uses_temp_btree": true,
-            "uses_covering_index": false
           }
         ],
         "scans_remaining": [
@@ -127,9 +115,9 @@
         ]
       },
       "applied_indexes": [
-        "CREATE INDEX IF NOT EXISTS idx_events_type_created ON events (event_type, created_at);"
+        "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
       ],
-      "elapsed_sec": 0.033
+      "elapsed_sec": 0.02
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -140,10 +128,10 @@
           "developer_report": {
             "rewritten_sql": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
             "applied_techniques": [
-              "Index Support Optimization"
+              "Covering Index Alignment"
             ],
             "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_events_type_created ON events (event_type, created_at);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
           },
           "verification_report": {
             "status": "PASSED",
@@ -151,27 +139,27 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 19.718,
-            "optimized_time_ms": 19.689,
-            "speedup_ratio": 1.0,
+            "original_time_ms": 46.932,
+            "optimized_time_ms": 39.546,
+            "speedup_ratio": 1.19,
             "original_row_count": 50,
             "optimized_row_count": 50,
             "verification_message": "Result sets match perfectly as multiset (50 rows).",
             "post_explain_plan": [
               {
-                "id": 5,
+                "id": 6,
                 "parent_id": 0,
-                "detail": "SCAN e",
+                "detail": "SCAN e USING INDEX idx_events_created_user",
                 "operation_type": "SCAN",
                 "table": "e",
-                "index": null,
+                "index": "idx_events_created_user",
                 "is_scan": true,
                 "is_search": false,
                 "uses_temp_btree": false,
                 "uses_covering_index": false
               },
               {
-                "id": 13,
+                "id": 15,
                 "parent_id": 0,
                 "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
                 "operation_type": "SEARCH",
@@ -181,22 +169,10 @@
                 "is_search": true,
                 "uses_temp_btree": false,
                 "uses_covering_index": false
-              },
-              {
-                "id": 33,
-                "parent_id": 0,
-                "detail": "USE TEMP B-TREE FOR ORDER BY",
-                "operation_type": "TEMP_BTREE",
-                "table": null,
-                "index": null,
-                "is_scan": false,
-                "is_search": false,
-                "uses_temp_btree": true,
-                "uses_covering_index": false
               }
             ]
           },
-          "elapsed_sec": 0.04
+          "elapsed_sec": 0.087
         }
       ]
     }

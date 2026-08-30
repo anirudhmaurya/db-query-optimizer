@@ -295,3 +295,17 @@ class TestOptimizerStateMachine:
         assert "developer_report" in first_attempt
         assert "verification_report" in first_attempt
         assert first_attempt["verification_report"]["status"] == "PASSED"
+
+    def test_orchestrator_deepseek_provider_init(self, monkeypatch):
+        """Test that OptimizerOrchestrator initializes DeepSeek provider with default model."""
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-sk-abc")
+        orchestrator = OptimizerOrchestrator(provider="deepseek")
+        assert orchestrator.model_name == "deepseek-chat"
+        assert orchestrator.llm_client.api_key == "test-deepseek-sk-abc"
+
+    def test_orchestrator_deepseek_missing_key(self, monkeypatch):
+        """Test that OptimizerOrchestrator raises ValueError when deepseek provider requested without key."""
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="DeepSeek API key required"):
+            OptimizerOrchestrator(provider="deepseek", api_key=None)
+

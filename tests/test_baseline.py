@@ -89,3 +89,59 @@ def test_run_baseline_execution(tmp_path: Path):
     assert summary["successful_cases"] == 1
     assert summary["results"][0]["status"] == "SUCCESS"
     assert out_file.exists()
+
+
+def test_deepseek_provider_request(monkeypatch):
+    """Test that DeepSeekProvider sends expected payload and headers."""
+    from src.baseline import DeepSeekProvider
+    import io
+
+    captured_requests = []
+
+    class MockResponse:
+        def __init__(self, data: dict):
+            self.data = json.dumps(data).encode("utf-8")
+
+        def read(self):
+            return self.data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    def mock_urlopen(req, timeout=60.0):
+        captured_requests.append(req)
+        return MockResponse({
+            "choices": [
+                {"message": {"content": "SELECT 42;"}}
+            ]
+        })
+
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    provider = DeepSeekProvider(api_key="test-sk-deepseek-123", model="deepseek-chat")
+    res = provider.complete("Optimize this query")
+
+    assert res == "SELECT 42;"
+    assert len(captured_requests) == 1
+    req = captured_requests[0]
+    assert req.full_url == "https://api.deepseek.com/chat/completions"
+    assert req.headers["Authorization"] == "Bearer test-sk-deepseek-123"
+    assert req.headers["Content-type"] == "application/json"
+
+    body = json.loads(req.data.decode("utf-8"))
+    assert body["model"] == "deepseek-chat"
+    assert body["messages"] == [{"role": "user", "content": "Optimize this query"}]
+    assert body["temperature"] == 0.0
+
+
+def test_zero_shot_baseline_deepseek_init(monkeypatch):
+    """Test that ZeroShotBaseline initializes DeepSeekProvider when provider='deepseek'."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key-123")
+    baseline = ZeroShotBaseline(provider="deepseek")
+    assert baseline.model_name == "deepseek-chat"
+    assert baseline.client.api_key == "test-key-123"
+

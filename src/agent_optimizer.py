@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from src.baseline import (
     AnthropicProvider,
+    DeepSeekProvider,
     GeminiProvider,
     LLMProvider,
     MockProvider,
@@ -591,7 +592,7 @@ class OptimizerOrchestrator:
         """Initialize the Multi-Agent Optimizer Orchestrator.
 
         Args:
-            provider: 'gemini', 'openai', 'anthropic', or 'mock'.
+            provider: 'deepseek', 'gemini', 'openai', 'anthropic', or 'mock'.
             model: Target model name.
             api_key: API key for LLM provider.
             client: Pre-configured LLMProvider instance.
@@ -605,11 +606,18 @@ class OptimizerOrchestrator:
             self.llm_client = client
             self.model_name = getattr(client, "model", "custom-client")
         else:
+            deepseek_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
             gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
             openai_key = api_key or os.environ.get("OPENAI_API_KEY")
             anthropic_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
 
-            if provider == "gemini" or (provider is None and gemini_key):
+            if provider == "deepseek" or (provider is None and deepseek_key):
+                if not deepseek_key:
+                    raise ValueError("DeepSeek API key required. Set DEEPSEEK_API_KEY or pass api_key.")
+                selected_model = model or "deepseek-chat"
+                self.llm_client = DeepSeekProvider(api_key=deepseek_key, model=selected_model)
+                self.model_name = selected_model
+            elif provider == "gemini" or (provider is None and gemini_key):
                 if not gemini_key:
                     raise ValueError("Gemini API key required. Set GEMINI_API_KEY or pass api_key.")
                 selected_model = model or "gemini-3.6-flash"
@@ -627,7 +635,7 @@ class OptimizerOrchestrator:
                 selected_model = model or "claude-3-5-sonnet-20241022"
                 self.llm_client = AnthropicProvider(api_key=anthropic_key, model=selected_model)
                 self.model_name = selected_model
-            elif provider == "mock" or (provider is None and not gemini_key and not openai_key and not anthropic_key):
+            elif provider == "mock" or (provider is None and not deepseek_key and not gemini_key and not openai_key and not anthropic_key):
                 selected_model = model or "mock-orchestrator"
                 self.llm_client = MockProvider(model=selected_model)
                 self.model_name = selected_model
@@ -934,8 +942,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--test-cases-path", type=Path, default=Path("test_cases.json"), help="Path to test cases JSON")
     parser.add_argument("--output-path", type=Path, default=Path("agent_results.json"), help="Output path for agent results JSON")
     parser.add_argument("--trajectories-dir", type=Path, default=Path("trajectories"), help="Directory for trajectory JSON files")
-    parser.add_argument("--provider", choices=["gemini", "openai", "anthropic", "mock"], default=None, help="LLM Provider")
-    parser.add_argument("--model", type=str, default=None, help="LLM Model (default: gemini-3.6-flash)")
+    parser.add_argument("--provider", choices=["deepseek", "gemini", "openai", "anthropic", "mock"], default=None, help="LLM Provider (deepseek, gemini, openai, anthropic, mock)")
+    parser.add_argument("--model", type=str, default=None, help="LLM Model (e.g. deepseek-chat, gemini-3.6-flash, gpt-4o)")
     parser.add_argument("--api-key", type=str, default=None, help="API Key")
     parser.add_argument("--mock", action="store_true", help="Run with mock provider offline")
     parser.add_argument("--max-retries", type=int, default=3, help="Max retries on verification failure")

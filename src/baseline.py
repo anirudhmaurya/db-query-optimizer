@@ -119,6 +119,66 @@ class LLMProvider:
         raise NotImplementedError
 
 
+class DeepSeekProvider(LLMProvider):
+    """DeepSeek API provider (e.g. deepseek-chat, deepseek-reasoner) using native urllib HTTP with backoff."""
+
+    def __init__(self, api_key: str, model: str = "deepseek-chat", max_retries: int = 5, timeout_sec: float = 60.0):
+        self.api_key = api_key
+        self.model = model
+        self.max_retries = max_retries
+        self.timeout_sec = timeout_sec
+        self.endpoint = "https://api.deepseek.com/chat/completions"
+
+    def complete(self, prompt: str) -> str:
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.0
+        }
+        data = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+
+        last_error = None
+        for attempt in range(1, self.max_retries + 1):
+            req = urllib.request.Request(self.endpoint, data=data, headers=headers, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout_sec) as response:
+                    res_data = json.loads(response.read().decode("utf-8"))
+                    choices = res_data.get("choices", [])
+                    if not choices:
+                        raise RuntimeError(f"DeepSeek API returned no choices: {res_data}")
+                    content = choices[0].get("message", {}).get("content", "")
+                    return content
+            except urllib.error.HTTPError as e:
+                error_body = e.read().decode("utf-8", errors="replace")
+                last_error = RuntimeError(f"DeepSeek API error ({e.code}): {error_body}")
+
+                # Check for 429 Rate Limit
+                if e.code == 429 and attempt < self.max_retries:
+                    sleep_time = 2.0 * (2 ** (attempt - 1)) + 1.0
+                    print(f"  ⏳ DeepSeek API rate limit hit (429). Pausing {sleep_time:.1f}s before retry {attempt}/{self.max_retries}...")
+                    time.sleep(sleep_time)
+                    continue
+
+                if e.code in (500, 502, 503, 504) and attempt < self.max_retries:
+                    time.sleep(3.0 * attempt)
+                    continue
+                raise last_error from e
+            except Exception as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    time.sleep(2.0 * attempt)
+                    continue
+                raise RuntimeError(f"Failed to communicate with DeepSeek API after {self.max_retries} attempts: {e}") from e
+
+        raise RuntimeError(f"Failed to communicate with DeepSeek API: {last_error}")
+
+
 class GeminiProvider(LLMProvider):
     """Google Gemini API provider (e.g. Gemini 3.6 Flash) using native urllib HTTP with intelligent rate-limit backoff."""
 
@@ -318,9 +378,9 @@ class ZeroShotBaseline:
         """Initialize the ZeroShotBaseline with an LLM provider or explicit client.
 
         Args:
-            provider: 'gemini', 'openai', 'anthropic', or 'mock'. If None, auto-detects from env vars.
-            model: Name of the model to use (e.g. 'gemini-2.5-flash', 'gpt-4o', etc.).
-            api_key: API key. If None, reads from GEMINI_API_KEY, GOOGLE_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.
+            provider: 'deepseek', 'gemini', 'openai', 'anthropic', or 'mock'. If None, auto-detects from env vars.
+            model: Name of the model to use (e.g. 'deepseek-chat', 'gemini-3.6-flash', 'gpt-4o', etc.).
+            api_key: API key. If None, reads from DEEPSEEK_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.
             client: Pre-instantiated LLMProvider instance.
         """
         if client is not None:
@@ -329,11 +389,18 @@ class ZeroShotBaseline:
             return
 
         # Auto-detect or use specified provider
+        deepseek_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
         gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         openai_key = api_key or os.environ.get("OPENAI_API_KEY")
         anthropic_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
 
-        if provider == "gemini" or (provider is None and gemini_key):
+        if provider == "deepseek" or (provider is None and deepseek_key):
+            if not deepseek_key:
+                raise ValueError("DeepSeek API key required. Set DEEPSEEK_API_KEY or pass api_key.")
+            selected_model = model or "deepseek-chat"
+            self.client = DeepSeekProvider(api_key=deepseek_key, model=selected_model)
+            self.model_name = selected_model
+        elif provider == "gemini" or (provider is None and gemini_key):
             if not gemini_key:
                 raise ValueError("Gemini API key required. Set GEMINI_API_KEY / GOOGLE_API_KEY or pass api_key.")
             selected_model = model or "gemini-3.6-flash"
@@ -351,7 +418,7 @@ class ZeroShotBaseline:
             selected_model = model or "claude-3-5-sonnet-20241022"
             self.client = AnthropicProvider(api_key=anthropic_key, model=selected_model)
             self.model_name = selected_model
-        elif provider == "mock" or (provider is None and not gemini_key and not openai_key and not anthropic_key):
+        elif provider == "mock" or (provider is None and not deepseek_key and not gemini_key and not openai_key and not anthropic_key):
             selected_model = model or "mock-dba-llm"
             self.client = MockProvider(model=selected_model)
             self.model_name = selected_model
@@ -571,8 +638,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--db-path", type=Path, default=Path("sandbox.db"), help="Path to SQLite sandbox database")
     parser.add_argument("--test-cases-path", type=Path, default=Path("test_cases.json"), help="Path to test cases JSON")
     parser.add_argument("--output-path", type=Path, default=Path("baseline_results.json"), help="Output path for results JSON")
-    parser.add_argument("--provider", choices=["gemini", "openai", "anthropic", "mock"], default=None, help="LLM Provider to use (gemini, openai, anthropic, mock)")
-    parser.add_argument("--model", type=str, default=None, help="Model name (e.g. gemini-3.6-flash, gpt-4o, claude-3-5-sonnet-20241022)")
+    parser.add_argument("--provider", choices=["deepseek", "gemini", "openai", "anthropic", "mock"], default=None, help="LLM Provider to use (deepseek, gemini, openai, anthropic, mock)")
+    parser.add_argument("--model", type=str, default=None, help="Model name (e.g. deepseek-chat, gemini-3.6-flash, gpt-4o, claude-3-5-sonnet-20241022)")
     parser.add_argument("--api-key", type=str, default=None, help="API key for LLM provider")
     parser.add_argument("--mock", action="store_true", help="Run with mock provider without making network requests")
     parser.add_argument("--timeout", type=float, default=10.0, help="Query timeout in seconds")

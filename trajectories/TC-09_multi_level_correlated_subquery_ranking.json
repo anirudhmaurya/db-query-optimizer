@@ -2,8 +2,8 @@
   "test_case_id": "TC-09",
   "test_case_name": "multi_level_correlated_subquery_ranking",
   "anti_pattern": "Correlated subquery ranking simulation instead of DENSE_RANK()",
-  "model": "deepseek-chat",
-  "start_time": "2026-08-30T14:12:57Z",
+  "model": "mock-orchestrator",
+  "start_time": "2026-08-30T14:21:10Z",
   "original_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
   "stages": {
     "profiler": {
@@ -73,60 +73,46 @@
         "identified_bottlenecks": [
           {
             "type": "FULL_TABLE_SCAN",
-            "table": "employees",
-            "detail": "The outer query scans the entire employees table (e) without using an index. This is inefficient for large tables.",
+            "table": "e",
+            "detail": "Sequential scan on e table across full dataset.",
             "severity": "HIGH"
           },
           {
-            "type": "CORRELATED_SUBQUERY",
-            "table": "employees",
-            "detail": "The correlated scalar subquery (e2) is executed for each row of the outer employees table, and it also performs a full table scan on employees (e2). This results in O(N^2) complexity, which is extremely slow for large datasets.",
+            "type": "FULL_TABLE_SCAN",
+            "table": "e2",
+            "detail": "Sequential scan on e2 table across full dataset.",
             "severity": "HIGH"
           },
           {
             "type": "TEMP_BTREE_SORT",
             "table": null,
-            "detail": "The ORDER BY clause requires a temporary B-tree to sort the results, which adds overhead and memory usage.",
+            "detail": "Temporary B-Tree created for sorting or grouping.",
             "severity": "MEDIUM"
           }
         ],
         "critical_tables": [
-          "employees",
-          "departments"
+          "e",
+          "e2"
         ],
         "has_temp_btree_sort": true,
-        "optimization_strategy": "Create indexes on employees(department_id, salary) and departments(id) to speed up the join and the subquery. Consider rewriting the query using window functions (e.g., ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC)) to avoid the correlated subquery and reduce complexity.",
-        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 4,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN e\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 7,\n    \"parent_id\": 0,\n    \"detail\": \"CORRELATED SCALAR SUBQUERY 1\",\n    \"operation_type\": \"SUBQUERY\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 12,\n    \"parent_id\": 7,\n    \"detail\": \"SCAN e2\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e2\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 29,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH d USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"d\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 40,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
-        "raw_response": "{\n  \"identified_bottlenecks\": [\n    {\n      \"type\": \"FULL_TABLE_SCAN\",\n      \"table\": \"employees\",\n      \"detail\": \"The outer query scans the entire employees table (e) without using an index. This is inefficient for large tables.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"CORRELATED_SUBQUERY\",\n      \"table\": \"employees\",\n      \"detail\": \"The correlated scalar subquery (e2) is executed for each row of the outer employees table, and it also performs a full table scan on employees (e2). This results in O(N^2) complexity, which is extremely slow for large datasets.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"TEMP_BTREE_SORT\",\n      \"table\": null,\n      \"detail\": \"The ORDER BY clause requires a temporary B-tree to sort the results, which adds overhead and memory usage.\",\n      \"severity\": \"MEDIUM\"\n    }\n  ],\n  \"critical_tables\": [\"employees\", \"departments\"],\n  \"has_temp_btree_sort\": true,\n  \"optimization_strategy\": \"Create indexes on employees(department_id, salary) and departments(id) to speed up the join and the subquery. Consider rewriting the query using window functions (e.g., ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC)) to avoid the correlated subquery and reduce complexity.\"\n}"
+        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
+        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 4,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN e\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 7,\n    \"parent_id\": 0,\n    \"detail\": \"CORRELATED SCALAR SUBQUERY 1\",\n    \"operation_type\": \"SUBQUERY\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 12,\n    \"parent_id\": 7,\n    \"detail\": \"SCAN e2\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e2\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 29,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH d USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"d\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 40,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
       },
-      "elapsed_sec": 2.952
+      "elapsed_sec": 0.0
     },
     "index_architect": {
       "architect_report": {
         "recommended_indexes": [
           {
             "table": "employees",
-            "ddl": "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
-            "purpose": "This composite index supports both the outer query's join condition (e.department_id = d.id) and the correlated subquery's filtering (e2.department_id = e.department_id AND e2.salary > e.salary). The index allows the subquery to count rows with higher salary in the same department via a range scan on salary, avoiding full table scans."
-          },
-          {
-            "table": "departments",
-            "ddl": "CREATE INDEX idx_dept_name ON departments (dept_name);",
-            "purpose": "This index supports the ORDER BY d.dept_name ASC by providing sorted access to department names, eliminating the need for a temporary B-tree sort. It also helps if the join order starts with departments."
-          },
-          {
-            "table": "employees",
-            "ddl": "CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);",
-            "purpose": "This covering index includes all columns needed for the outer query (id, name, department_id, salary) and the subquery (department_id, salary). It allows the entire query to be answered from index-only scans, avoiding table row lookups and further reducing I/O."
+            "ddl": "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);",
+            "purpose": "Index department grouping with descending salary order."
           }
         ],
-        "rationale": "The primary bottleneck is the correlated subquery causing O(N^2) full table scans. The composite index on (department_id, salary DESC) turns the subquery into a fast index range scan counting higher salaries per department. The covering index on (department_id, salary DESC, id, name) further optimizes by making the outer query index-only. The index on departments.dept_name supports the ORDER BY, removing the temp sort. These three indexes together eliminate full table scans and the temp B-tree, converting the query to efficient B-Tree lookups.",
-        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"employees\",\n    \"detail\": \"The outer query scans the entire employees table (e) without using an index. This is inefficient for large tables.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"employees\",\n    \"detail\": \"The correlated scalar subquery (e2) is executed for each row of the outer employees table, and it also performs a full table scan on employees (e2). This results in O(N^2) complexity, which is extremely slow for large datasets.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The ORDER BY clause requires a temporary B-tree to sort the results, which adds overhead and memory usage.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
-        "raw_response": "{\n  \"recommended_indexes\": [\n    {\n      \"table\": \"employees\",\n      \"ddl\": \"CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);\",\n      \"purpose\": \"This composite index supports both the outer query's join condition (e.department_id = d.id) and the correlated subquery's filtering (e2.department_id = e.department_id AND e2.salary > e.salary). The index allows the subquery to count rows with higher salary in the same department via a range scan on salary, avoiding full table scans.\"\n    },\n    {\n      \"table\": \"departments\",\n      \"ddl\": \"CREATE INDEX idx_dept_name ON departments (dept_name);\",\n      \"purpose\": \"This index supports the ORDER BY d.dept_name ASC by providing sorted access to department names, eliminating the need for a temporary B-tree sort. It also helps if the join order starts with departments.\"\n    },\n    {\n      \"table\": \"employees\",\n      \"ddl\": \"CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);\",\n      \"purpose\": \"This covering index includes all columns needed for the outer query (id, name, department_id, salary) and the subquery (department_id, salary). It allows the entire query to be answered from index-only scans, avoiding table row lookups and further reducing I/O.\"\n    }\n  ],\n  \"rationale\": \"The primary bottleneck is the correlated subquery causing O(N^2) full table scans. The composite index on (department_id, salary DESC) turns the subquery into a fast index range scan counting higher salaries per department. The covering index on (department_id, salary DESC, id, name) further optimizes by making the outer query index-only. The index on departments.dept_name supports the ORDER BY, removing the temp sort. These three indexes together eliminate full table scans and the temp B-tree, converting the query to efficient B-Tree lookups.\"\n}",
+        "rationale": "Created composite covering indexes matching query join and filter columns.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e2\",\n    \"detail\": \"Sequential scan on e2 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
         "applied_indexes": [
-          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
-          "CREATE INDEX idx_dept_name ON departments (dept_name);",
-          "CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);"
+          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
@@ -196,42 +182,38 @@
         ]
       },
       "applied_indexes": [
-        "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
-        "CREATE INDEX idx_dept_name ON departments (dept_name);",
-        "CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);"
+        "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
       ],
-      "elapsed_sec": 4.534
+      "elapsed_sec": 0.003
     },
     "developer_verifier_loop": {
-      "total_attempts": 1,
-      "succeeded": true,
-      "fallback_triggered": false,
+      "total_attempts": 3,
+      "succeeded": false,
+      "fallback_triggered": true,
       "attempts": [
         {
           "attempt": 1,
           "developer_report": {
-            "rewritten_sql": "WITH ranked_employees AS (SELECT e.id, e.name, d.dept_name, e.salary, ROW_NUMBER() OVER (PARTITION BY e.department_id ORDER BY e.salary DESC) AS rn FROM employees e JOIN departments d ON e.department_id = d.id) SELECT id, name, dept_name, salary FROM ranked_employees WHERE rn <= 3 ORDER BY dept_name ASC, salary DESC;",
+            "rewritten_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
             "applied_techniques": [
-              "Replaced correlated subquery with window function ROW_NUMBER()",
-              "Used CTE to compute ranking per department",
-              "Leveraged existing indexes on (department_id, salary DESC) for efficient window function"
+              "Window Function (DENSE_RANK)",
+              "CTE Elimination of Quadratic Count"
             ],
-            "rationale": "The original query used a correlated subquery to count employees with higher salary in the same department, which is O(N^2). By using ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC), we compute the rank of each employee within their department in a single pass, and then filter to the top 3 per department. This eliminates the correlated subquery and reduces complexity to O(N log N) due to sorting. The indexes on (department_id, salary DESC) support the window function efficiently. The output columns and ordering are preserved.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"employees\",\n    \"detail\": \"The outer query scans the entire employees table (e) without using an index. This is inefficient for large tables.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"employees\",\n    \"detail\": \"The correlated scalar subquery (e2) is executed for each row of the outer employees table, and it also performs a full table scan on employees (e2). This results in O(N^2) complexity, which is extremely slow for large datasets.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The ORDER BY clause requires a temporary B-tree to sort the results, which adds overhead and memory usage.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);\",\n  \"CREATE INDEX idx_dept_name ON departments (dept_name);\",\n  \"CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
-            "raw_response": "{\n  \"rewritten_sql\": \"WITH ranked_employees AS (SELECT e.id, e.name, d.dept_name, e.salary, ROW_NUMBER() OVER (PARTITION BY e.department_id ORDER BY e.salary DESC) AS rn FROM employees e JOIN departments d ON e.department_id = d.id) SELECT id, name, dept_name, salary FROM ranked_employees WHERE rn <= 3 ORDER BY dept_name ASC, salary DESC;\",\n  \"applied_techniques\": [\n    \"Replaced correlated subquery with window function ROW_NUMBER()\",\n    \"Used CTE to compute ranking per department\",\n    \"Leveraged existing indexes on (department_id, salary DESC) for efficient window function\"\n  ],\n  \"rationale\": \"The original query used a correlated subquery to count employees with higher salary in the same department, which is O(N^2). By using ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC), we compute the rank of each employee within their department in a single pass, and then filter to the top 3 per department. This eliminates the correlated subquery and reduces complexity to O(N log N) due to sorting. The indexes on (department_id, salary DESC) support the window function efficiently. The output columns and ordering are preserved.\"\n}"
+            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e2\",\n    \"detail\": \"Sequential scan on e2 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
           },
           "verification_report": {
-            "status": "PASSED",
-            "is_equivalent": true,
-            "error_stage": null,
-            "error_details": null,
-            "feedback_for_developer": null,
-            "original_time_ms": 43.113,
-            "optimized_time_ms": 6.891,
-            "speedup_ratio": 6.26,
+            "status": "FAILED",
+            "is_equivalent": false,
+            "error_stage": "RESULT_MISMATCH",
+            "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
+            "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.",
+            "original_time_ms": 14.813,
+            "optimized_time_ms": 3.998,
+            "speedup_ratio": 3.71,
             "original_row_count": 60,
-            "optimized_row_count": 60,
-            "verification_message": "Result sets match perfectly as multiset (60 rows).",
+            "optimized_row_count": 80,
+            "candidate_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
             "post_explain_plan": [
               {
                 "id": 2,
@@ -294,7 +276,7 @@
                 "uses_covering_index": false
               },
               {
-                "id": 84,
+                "id": 110,
                 "parent_id": 0,
                 "detail": "SCAN ranked_employees",
                 "operation_type": "SCAN",
@@ -306,7 +288,7 @@
                 "uses_covering_index": false
               },
               {
-                "id": 97,
+                "id": 123,
                 "parent_id": 0,
                 "detail": "USE TEMP B-TREE FOR ORDER BY",
                 "operation_type": "TEMP_BTREE",
@@ -319,7 +301,231 @@
               }
             ]
           },
-          "elapsed_sec": 2.481
+          "elapsed_sec": 0.019
+        },
+        {
+          "attempt": 2,
+          "developer_report": {
+            "rewritten_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+            "applied_techniques": [
+              "Window Function (DENSE_RANK)",
+              "CTE Elimination of Quadratic Count"
+            ],
+            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e2\",\n    \"detail\": \"Sequential scan on e2 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);\"\n]\n\n### PREVIOUS ATTEMPT FAILED VERIFICATION (CORRECTIVE ACTION REQUIRED):\nError / Mismatch Details: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nDiagnostic Feedback: Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.\nPrevious Candidate SQL: WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;\nCRITICAL: Fix the exact issue described above. Ensure row count, column count, and filter predicates strictly match the original query semantics.\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
+          },
+          "verification_report": {
+            "status": "FAILED",
+            "is_equivalent": false,
+            "error_stage": "RESULT_MISMATCH",
+            "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
+            "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.",
+            "original_time_ms": 14.903,
+            "optimized_time_ms": 3.933,
+            "speedup_ratio": 3.79,
+            "original_row_count": 60,
+            "optimized_row_count": 80,
+            "candidate_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+            "post_explain_plan": [
+              {
+                "id": 2,
+                "parent_id": 0,
+                "detail": "CO-ROUTINE ranked_employees",
+                "operation_type": "OTHER",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 5,
+                "parent_id": 2,
+                "detail": "CO-ROUTINE (subquery-3)",
+                "operation_type": "SUBQUERY",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 10,
+                "parent_id": 5,
+                "detail": "SCAN e USING INDEX idx_emp_dept_salary",
+                "operation_type": "SCAN",
+                "table": "e",
+                "index": "idx_emp_dept_salary",
+                "is_scan": true,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 13,
+                "parent_id": 5,
+                "detail": "SEARCH d USING INTEGER PRIMARY KEY (rowid=?)",
+                "operation_type": "SEARCH",
+                "table": "d",
+                "index": null,
+                "is_scan": false,
+                "is_search": true,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 33,
+                "parent_id": 2,
+                "detail": "SCAN (subquery-3)",
+                "operation_type": "SCAN",
+                "table": null,
+                "index": null,
+                "is_scan": true,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 110,
+                "parent_id": 0,
+                "detail": "SCAN ranked_employees",
+                "operation_type": "SCAN",
+                "table": "ranked_employees",
+                "index": null,
+                "is_scan": true,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 123,
+                "parent_id": 0,
+                "detail": "USE TEMP B-TREE FOR ORDER BY",
+                "operation_type": "TEMP_BTREE",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": true,
+                "uses_covering_index": false
+              }
+            ]
+          },
+          "elapsed_sec": 0.019
+        },
+        {
+          "attempt": 3,
+          "developer_report": {
+            "rewritten_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+            "applied_techniques": [
+              "Window Function (DENSE_RANK)",
+              "CTE Elimination of Quadratic Count"
+            ],
+            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e2\",\n    \"detail\": \"Sequential scan on e2 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);\"\n]\n\n### PREVIOUS ATTEMPT FAILED VERIFICATION (CORRECTIVE ACTION REQUIRED):\nError / Mismatch Details: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nDiagnostic Feedback: Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.\nPrevious Candidate SQL: WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;\nCRITICAL: Fix the exact issue described above. Ensure row count, column count, and filter predicates strictly match the original query semantics.\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
+          },
+          "verification_report": {
+            "status": "FAILED",
+            "is_equivalent": false,
+            "error_stage": "RESULT_MISMATCH",
+            "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
+            "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.",
+            "original_time_ms": 14.984,
+            "optimized_time_ms": 3.966,
+            "speedup_ratio": 3.78,
+            "original_row_count": 60,
+            "optimized_row_count": 80,
+            "candidate_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+            "post_explain_plan": [
+              {
+                "id": 2,
+                "parent_id": 0,
+                "detail": "CO-ROUTINE ranked_employees",
+                "operation_type": "OTHER",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 5,
+                "parent_id": 2,
+                "detail": "CO-ROUTINE (subquery-3)",
+                "operation_type": "SUBQUERY",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 10,
+                "parent_id": 5,
+                "detail": "SCAN e USING INDEX idx_emp_dept_salary",
+                "operation_type": "SCAN",
+                "table": "e",
+                "index": "idx_emp_dept_salary",
+                "is_scan": true,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 13,
+                "parent_id": 5,
+                "detail": "SEARCH d USING INTEGER PRIMARY KEY (rowid=?)",
+                "operation_type": "SEARCH",
+                "table": "d",
+                "index": null,
+                "is_scan": false,
+                "is_search": true,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 33,
+                "parent_id": 2,
+                "detail": "SCAN (subquery-3)",
+                "operation_type": "SCAN",
+                "table": null,
+                "index": null,
+                "is_scan": true,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 110,
+                "parent_id": 0,
+                "detail": "SCAN ranked_employees",
+                "operation_type": "SCAN",
+                "table": "ranked_employees",
+                "index": null,
+                "is_scan": true,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 123,
+                "parent_id": 0,
+                "detail": "USE TEMP B-TREE FOR ORDER BY",
+                "operation_type": "TEMP_BTREE",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": true,
+                "uses_covering_index": false
+              }
+            ]
+          },
+          "elapsed_sec": 0.019
         }
       ]
     }
@@ -402,50 +608,46 @@
         "identified_bottlenecks": [
           {
             "type": "FULL_TABLE_SCAN",
-            "table": "employees",
-            "detail": "The outer query scans the entire employees table (e) without using an index. This is inefficient for large tables.",
+            "table": "e",
+            "detail": "Sequential scan on e table across full dataset.",
             "severity": "HIGH"
           },
           {
-            "type": "CORRELATED_SUBQUERY",
-            "table": "employees",
-            "detail": "The correlated scalar subquery (e2) is executed for each row of the outer employees table, and it also performs a full table scan on employees (e2). This results in O(N^2) complexity, which is extremely slow for large datasets.",
+            "type": "FULL_TABLE_SCAN",
+            "table": "e2",
+            "detail": "Sequential scan on e2 table across full dataset.",
             "severity": "HIGH"
           },
           {
             "type": "TEMP_BTREE_SORT",
             "table": null,
-            "detail": "The ORDER BY clause requires a temporary B-tree to sort the results, which adds overhead and memory usage.",
+            "detail": "Temporary B-Tree created for sorting or grouping.",
             "severity": "MEDIUM"
           }
         ],
         "critical_tables": [
-          "employees",
-          "departments"
+          "e",
+          "e2"
         ],
         "has_temp_btree_sort": true,
-        "optimization_strategy": "Create indexes on employees(department_id, salary) and departments(id) to speed up the join and the subquery. Consider rewriting the query using window functions (e.g., ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC)) to avoid the correlated subquery and reduce complexity."
+        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions."
       }
     },
     {
       "test_case_id": "TC-09",
       "test_case_name": "multi_level_correlated_subquery_ranking",
       "agent_id": "IndexArchitect",
-      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"employees\",\n    \"detail\": \"The outer query scans the entire employees table (e) without using an index. This is inefficient for large tables.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"employees\",\n    \"detail\": \"The correlated scalar subquery (e2) is executed for each row of the outer employees table, and it also performs a full table scan on employees (e2). This results in O(N^2) complexity, which is extremely slow for large datasets.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The ORDER BY clause requires a temporary B-tree to sort the results, which adds overhead and memory usage.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e2\",\n    \"detail\": \"Sequential scan on e2 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
       "tool_called": "DatabaseSandbox.apply_index",
       "tool_arguments": {
         "db_path": "sandbox_TC-09.db",
         "recommended_indexes": [
-          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
-          "CREATE INDEX idx_dept_name ON departments (dept_name);",
-          "CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);"
+          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
         ]
       },
       "tool_output": {
         "applied_indexes": [
-          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
-          "CREATE INDEX idx_dept_name ON departments (dept_name);",
-          "CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);"
+          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
@@ -516,56 +718,143 @@
         "recommended_indexes": [
           {
             "table": "employees",
-            "ddl": "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
-            "purpose": "This composite index supports both the outer query's join condition (e.department_id = d.id) and the correlated subquery's filtering (e2.department_id = e.department_id AND e2.salary > e.salary). The index allows the subquery to count rows with higher salary in the same department via a range scan on salary, avoiding full table scans."
-          },
-          {
-            "table": "departments",
-            "ddl": "CREATE INDEX idx_dept_name ON departments (dept_name);",
-            "purpose": "This index supports the ORDER BY d.dept_name ASC by providing sorted access to department names, eliminating the need for a temporary B-tree sort. It also helps if the join order starts with departments."
-          },
-          {
-            "table": "employees",
-            "ddl": "CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);",
-            "purpose": "This covering index includes all columns needed for the outer query (id, name, department_id, salary) and the subquery (department_id, salary). It allows the entire query to be answered from index-only scans, avoiding table row lookups and further reducing I/O."
+            "ddl": "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);",
+            "purpose": "Index department grouping with descending salary order."
           }
         ],
-        "rationale": "The primary bottleneck is the correlated subquery causing O(N^2) full table scans. The composite index on (department_id, salary DESC) turns the subquery into a fast index range scan counting higher salaries per department. The covering index on (department_id, salary DESC, id, name) further optimizes by making the outer query index-only. The index on departments.dept_name supports the ORDER BY, removing the temp sort. These three indexes together eliminate full table scans and the temp B-tree, converting the query to efficient B-Tree lookups."
+        "rationale": "Created composite covering indexes matching query join and filter columns."
       }
     },
     {
       "test_case_id": "TC-09",
       "test_case_name": "multi_level_correlated_subquery_ranking",
       "agent_id": "Developer",
-      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"employees\",\n    \"detail\": \"The outer query scans the entire employees table (e) without using an index. This is inefficient for large tables.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"employees\",\n    \"detail\": \"The correlated scalar subquery (e2) is executed for each row of the outer employees table, and it also performs a full table scan on employees (e2). This results in O(N^2) complexity, which is extremely slow for large datasets.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The ORDER BY clause requires a temporary B-tree to sort the results, which adds overhead and memory usage.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);\",\n  \"CREATE INDEX idx_dept_name ON departments (dept_name);\",\n  \"CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e2\",\n    \"detail\": \"Sequential scan on e2 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
       "tool_called": "DatabaseSandbox.verify",
       "tool_arguments": {
         "db_path": "sandbox_TC-09.db",
         "original_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
-        "optimized_query": "WITH ranked_employees AS (SELECT e.id, e.name, d.dept_name, e.salary, ROW_NUMBER() OVER (PARTITION BY e.department_id ORDER BY e.salary DESC) AS rn FROM employees e JOIN departments d ON e.department_id = d.id) SELECT id, name, dept_name, salary FROM ranked_employees WHERE rn <= 3 ORDER BY dept_name ASC, salary DESC;",
+        "optimized_query": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+        "timeout_sec": 10.0
+      },
+      "tool_output": {
+        "status": "FAILED",
+        "is_valid": null,
+        "verification_message": null,
+        "original_time_ms": 14.813,
+        "optimized_time_ms": 3.998,
+        "speedup_ratio": 3.71,
+        "original_row_count": 60,
+        "optimized_row_count": 80,
+        "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
+        "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data."
+      },
+      "retries_triggered": 0,
+      "llm_output": {
+        "rewritten_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+        "applied_techniques": [
+          "Window Function (DENSE_RANK)",
+          "CTE Elimination of Quadratic Count"
+        ],
+        "rationale": "Applied targeted relational rewrites and SARGable range predicates."
+      }
+    },
+    {
+      "test_case_id": "TC-09",
+      "test_case_name": "multi_level_correlated_subquery_ranking",
+      "agent_id": "Developer",
+      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e2\",\n    \"detail\": \"Sequential scan on e2 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);\"\n]\n\n### PREVIOUS ATTEMPT FAILED VERIFICATION (CORRECTIVE ACTION REQUIRED):\nError / Mismatch Details: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nDiagnostic Feedback: Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.\nPrevious Candidate SQL: WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;\nCRITICAL: Fix the exact issue described above. Ensure row count, column count, and filter predicates strictly match the original query semantics.\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+      "tool_called": "DatabaseSandbox.verify",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-09.db",
+        "original_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
+        "optimized_query": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+        "timeout_sec": 10.0
+      },
+      "tool_output": {
+        "status": "FAILED",
+        "is_valid": null,
+        "verification_message": null,
+        "original_time_ms": 14.903,
+        "optimized_time_ms": 3.933,
+        "speedup_ratio": 3.79,
+        "original_row_count": 60,
+        "optimized_row_count": 80,
+        "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
+        "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data."
+      },
+      "retries_triggered": 1,
+      "llm_output": {
+        "rewritten_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+        "applied_techniques": [
+          "Window Function (DENSE_RANK)",
+          "CTE Elimination of Quadratic Count"
+        ],
+        "rationale": "Applied targeted relational rewrites and SARGable range predicates."
+      }
+    },
+    {
+      "test_case_id": "TC-09",
+      "test_case_name": "multi_level_correlated_subquery_ranking",
+      "agent_id": "Developer",
+      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e2\",\n    \"detail\": \"Sequential scan on e2 table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);\"\n]\n\n### PREVIOUS ATTEMPT FAILED VERIFICATION (CORRECTIVE ACTION REQUIRED):\nError / Mismatch Details: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nDiagnostic Feedback: Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.\nPrevious Candidate SQL: WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;\nCRITICAL: Fix the exact issue described above. Ensure row count, column count, and filter predicates strictly match the original query semantics.\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+      "tool_called": "DatabaseSandbox.verify",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-09.db",
+        "original_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
+        "optimized_query": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+        "timeout_sec": 10.0
+      },
+      "tool_output": {
+        "status": "FAILED",
+        "is_valid": null,
+        "verification_message": null,
+        "original_time_ms": 14.984,
+        "optimized_time_ms": 3.966,
+        "speedup_ratio": 3.78,
+        "original_row_count": 60,
+        "optimized_row_count": 80,
+        "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
+        "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data."
+      },
+      "retries_triggered": 2,
+      "llm_output": {
+        "rewritten_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+        "applied_techniques": [
+          "Window Function (DENSE_RANK)",
+          "CTE Elimination of Quadratic Count"
+        ],
+        "rationale": "Applied targeted relational rewrites and SARGable range predicates."
+      }
+    },
+    {
+      "test_case_id": "TC-09",
+      "test_case_name": "multi_level_correlated_subquery_ranking",
+      "agent_id": "OrchestratorFallback",
+      "raw_prompt": "Optimization failed after 3 retries. Safety net fallback activated.",
+      "tool_called": "DatabaseSandbox.verify",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-09.db",
+        "original_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
+        "optimized_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
         "timeout_sec": 10.0
       },
       "tool_output": {
         "status": "PASSED",
-        "is_valid": null,
-        "verification_message": "Result sets match perfectly as multiset (60 rows).",
-        "original_time_ms": 43.113,
-        "optimized_time_ms": 6.891,
-        "speedup_ratio": 6.26,
-        "original_row_count": 60,
-        "optimized_row_count": 60,
-        "error_details": null,
-        "feedback_for_developer": null
+        "is_valid": true,
+        "verification_message": "Optimization failed after 3 retries. Falling back to original SQL for safety.",
+        "original_time_ms": 14.873,
+        "optimized_time_ms": 14.922,
+        "speedup_ratio": 1.0
       },
-      "retries_triggered": 0,
+      "retries_triggered": 3,
       "llm_output": {
-        "rewritten_sql": "WITH ranked_employees AS (SELECT e.id, e.name, d.dept_name, e.salary, ROW_NUMBER() OVER (PARTITION BY e.department_id ORDER BY e.salary DESC) AS rn FROM employees e JOIN departments d ON e.department_id = d.id) SELECT id, name, dept_name, salary FROM ranked_employees WHERE rn <= 3 ORDER BY dept_name ASC, salary DESC;",
+        "rewritten_sql": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
         "applied_techniques": [
-          "Replaced correlated subquery with window function ROW_NUMBER()",
-          "Used CTE to compute ranking per department",
-          "Leveraged existing indexes on (department_id, salary DESC) for efficient window function"
+          "Fallback: Preserved original SQL for 100% data safety after 3 failed retries",
+          "Physical Index Optimization"
         ],
-        "rationale": "The original query used a correlated subquery to count employees with higher salary in the same department, which is O(N^2). By using ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC), we compute the rank of each employee within their department in a single pass, and then filter to the top 3 per department. This eliminates the correlated subquery and reduces complexity to O(N log N) due to sorting. The indexes on (department_id, salary DESC) support the window function efficiently. The output columns and ordering are preserved."
+        "rationale": "Safety fallback to original SQL guarantees 100% result set correctness."
       }
     }
   ]

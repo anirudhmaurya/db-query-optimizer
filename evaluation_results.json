@@ -1,26 +1,26 @@
 {
-  "timestamp": "2026-08-30T14:13:43Z",
-  "model": "deepseek-chat",
-  "database": "/Users/ani/MyWorkspace/m1-db-query-optimizer/sandbox.db",
+  "timestamp": "2026-08-30T14:21:10Z",
+  "model": "mock-orchestrator",
+  "database": "sandbox.db",
   "total_queries": 13,
   "summary": {
     "baseline": {
       "total_cases": 13,
-      "successful_cases": 12,
-      "mismatch_cases": 1,
+      "successful_cases": 10,
+      "mismatch_cases": 3,
       "error_cases": 0,
-      "success_rate_pct": 92.3,
-      "average_speedup": 28.3
+      "success_rate_pct": 76.9,
+      "average_speedup": 20.57
     },
     "agent_optimizer": {
       "total_cases": 13,
       "successful_cases": 13,
       "failed_cases": 0,
       "success_rate_pct": 100.0,
-      "average_speedup": 5.17,
-      "max_speedup": 42.06,
-      "total_indexes_created": 32,
-      "total_iteration_attempts": 13
+      "average_speedup": 1.5,
+      "max_speedup": 6.15,
+      "total_indexes_created": 15,
+      "total_iteration_attempts": 15
     }
   },
   "comparison_table": [
@@ -32,27 +32,25 @@
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "optimized_latency_ms": 22.773,
-        "speedup_ratio": 0.73
+        "optimized_latency_ms": 7.213,
+        "speedup_ratio": 1.03
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 356.513,
-        "optimized_latency_ms": 312.92,
-        "speedup_ratio": 1.14,
-        "indexes_created": "Yes (3)",
-        "applied_indexes_count": 3,
+        "original_latency_ms": 3.663,
+        "optimized_latency_ms": 3.778,
+        "speedup_ratio": 0.97,
+        "indexes_created": "Yes (2)",
+        "applied_indexes_count": 2,
         "applied_indexes": [
-          "CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);",
-          "CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);",
-          "CREATE INDEX idx_users_region ON users (region);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);",
+          "CREATE INDEX IF NOT EXISTS idx_order_items_order_qty ON order_items (order_id, quantity, unit_price);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "Index optimization",
-          "Query plan analysis"
+          "Covering Index Alignment"
         ]
       }
     },
@@ -64,26 +62,24 @@
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "optimized_latency_ms": 27.557,
-        "speedup_ratio": 1.22
+        "optimized_latency_ms": 13.478,
+        "speedup_ratio": 1.68
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 31.954,
-        "optimized_latency_ms": 29.769,
-        "speedup_ratio": 1.07,
-        "indexes_created": "Yes (2)",
-        "applied_indexes_count": 2,
+        "original_latency_ms": 12.13,
+        "optimized_latency_ms": 5.678,
+        "speedup_ratio": 2.14,
+        "indexes_created": "Yes (1)",
+        "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_events_created_at ON events (created_at);",
-          "CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);"
+          "CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "Converted non-SARGable date function to range predicate",
-          "Leveraged index on created_at for efficient filtering"
+          "SARGable Date Range Filter"
         ]
       }
     },
@@ -95,28 +91,25 @@
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "optimized_latency_ms": 12.9,
-        "speedup_ratio": 81.19
+        "optimized_latency_ms": 5.351,
+        "speedup_ratio": 196.39
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 97.842,
-        "optimized_latency_ms": 2.326,
-        "speedup_ratio": 42.06,
-        "indexes_created": "Yes (2)",
-        "applied_indexes_count": 2,
+        "original_latency_ms": 57.42,
+        "optimized_latency_ms": 9.331,
+        "speedup_ratio": 6.15,
+        "indexes_created": "Yes (1)",
+        "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary);",
-          "CREATE INDEX idx_emp_salary ON employees (salary DESC);"
+          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "Replaced correlated subqueries with a CTE and JOIN",
-          "Used GROUP BY to compute department averages once",
-          "Leveraged existing indexes on (department_id, salary) and (salary DESC)",
-          "Eliminated redundant scans and reduced complexity from O(N^2) to O(N log N)"
+          "Window Function (AVG OVER PARTITION)",
+          "CTE Common Table Expression"
         ]
       }
     },
@@ -128,26 +121,24 @@
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "optimized_latency_ms": 51.186,
-        "speedup_ratio": 0.78
+        "optimized_latency_ms": 19.948,
+        "speedup_ratio": 1.02
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 78.796,
-        "optimized_latency_ms": 41.284,
-        "speedup_ratio": 1.91,
-        "indexes_created": "Yes (3)",
-        "applied_indexes_count": 3,
+        "original_latency_ms": 43.93,
+        "optimized_latency_ms": 47.22,
+        "speedup_ratio": 0.93,
+        "indexes_created": "Yes (1)",
+        "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_events_created_at ON events (created_at DESC);",
-          "CREATE INDEX idx_users_name ON users (name);",
-          "CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);"
+          "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "No changes possible without altering semantics"
+          "Covering Index Alignment"
         ]
       }
     },
@@ -159,28 +150,24 @@
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "optimized_latency_ms": 33.087,
-        "speedup_ratio": 0.54
+        "optimized_latency_ms": 11.108,
+        "speedup_ratio": 1.0
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 39.078,
-        "optimized_latency_ms": 24.365,
-        "speedup_ratio": 1.6,
-        "indexes_created": "Yes (3)",
-        "applied_indexes_count": 3,
+        "original_latency_ms": 10.244,
+        "optimized_latency_ms": 10.131,
+        "speedup_ratio": 1.01,
+        "indexes_created": "Yes (1)",
+        "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_orders_amount_date ON orders (amount, order_date, user_id);",
-          "CREATE INDEX idx_orders_date_amount ON orders (order_date, amount, user_id);",
-          "CREATE INDEX idx_users_region ON users (region, id);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "Index optimization",
-          "SARGable predicate",
-          "No query rewrite needed"
+          "Covering Index Alignment"
         ]
       }
     },
@@ -192,27 +179,25 @@
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "optimized_latency_ms": 278.619,
-        "speedup_ratio": 0.08
+        "optimized_latency_ms": 10.06,
+        "speedup_ratio": 0.98
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 3.107,
-        "optimized_latency_ms": 2.113,
-        "speedup_ratio": 1.47,
-        "indexes_created": "Yes (3)",
-        "applied_indexes_count": 3,
+        "original_latency_ms": 0.397,
+        "optimized_latency_ms": 0.312,
+        "speedup_ratio": 1.27,
+        "indexes_created": "Yes (1)",
+        "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_orders_user_id ON orders (user_id);",
-          "CREATE INDEX idx_users_id ON users (id);",
-          "CREATE INDEX idx_users_id_covering ON users (id, name, region, signup_date);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "Index optimization",
-          "Query structure preservation"
+          "NOT EXISTS Anti-Join Optimization",
+          "Index-Supported Lookup"
         ]
       }
     },
@@ -224,26 +209,25 @@
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "optimized_latency_ms": 220.01,
-        "speedup_ratio": 0.8
+        "optimized_latency_ms": 180.373,
+        "speedup_ratio": 1.02
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 3.399,
-        "optimized_latency_ms": 1.501,
-        "speedup_ratio": 2.26,
-        "indexes_created": "Yes (2)",
-        "applied_indexes_count": 2,
+        "original_latency_ms": 83.449,
+        "optimized_latency_ms": 83.584,
+        "speedup_ratio": 1.0,
+        "indexes_created": "Yes (1)",
+        "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);",
-          "CREATE INDEX idx_users_id ON users (id);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "Index optimization",
-          "Query structure preservation"
+          "SARGable Date Comparison",
+          "Indexed EXISTS Scan"
         ]
       }
     },
@@ -255,24 +239,24 @@
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "optimized_latency_ms": 21.255,
-        "speedup_ratio": 0.28
+        "optimized_latency_ms": 11.828,
+        "speedup_ratio": 0.5
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 3.131,
-        "optimized_latency_ms": 1.253,
-        "speedup_ratio": 2.5,
+        "original_latency_ms": 8.698,
+        "optimized_latency_ms": 8.842,
+        "speedup_ratio": 0.98,
         "indexes_created": "Yes (1)",
         "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_events_type_created ON events (event_type, created_at DESC);"
+          "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "Index optimization"
+          "Covering Index Alignment"
         ]
       }
     },
@@ -284,28 +268,25 @@
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "optimized_latency_ms": 16.575,
-        "speedup_ratio": 51.5
+        "optimized_latency_ms": 841.975,
+        "speedup_ratio": 1.03
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 43.113,
-        "optimized_latency_ms": 6.891,
-        "speedup_ratio": 6.26,
-        "indexes_created": "Yes (3)",
-        "applied_indexes_count": 3,
+        "original_latency_ms": 14.873,
+        "optimized_latency_ms": 14.922,
+        "speedup_ratio": 1.0,
+        "indexes_created": "Yes (1)",
+        "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
-          "CREATE INDEX idx_dept_name ON departments (dept_name);",
-          "CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);"
+          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
         ],
-        "retries_needed": 1,
+        "retries_needed": 3,
         "applied_techniques": [
-          "Replaced correlated subquery with window function ROW_NUMBER()",
-          "Used CTE to compute ranking per department",
-          "Leveraged existing indexes on (department_id, salary DESC) for efficient window function"
+          "Fallback: Preserved original SQL for 100% data safety after 3 failed retries",
+          "Physical Index Optimization"
         ]
       }
     },
@@ -317,29 +298,25 @@
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "optimized_latency_ms": 58.057,
-        "speedup_ratio": 0.84
+        "optimized_latency_ms": 24.001,
+        "speedup_ratio": 1.01
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 40.899,
-        "optimized_latency_ms": 24.434,
-        "speedup_ratio": 1.67,
-        "indexes_created": "Yes (3)",
-        "applied_indexes_count": 3,
+        "original_latency_ms": 16.653,
+        "optimized_latency_ms": 16.256,
+        "speedup_ratio": 1.02,
+        "indexes_created": "Yes (1)",
+        "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_order_items_product_order ON order_items (product_id, order_id, quantity, unit_price);",
-          "CREATE INDEX idx_order_items_order_id ON order_items (order_id);",
-          "CREATE INDEX idx_orders_status_id ON orders (status, id);"
+          "CREATE INDEX IF NOT EXISTS idx_order_items_product_order ON order_items (product_id, order_id, quantity, unit_price);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "Rewrote correlated subqueries into CTEs",
-          "Used CTE to avoid repeated computation of line_total",
-          "Preserved original semantics exactly",
-          "Leveraged existing indexes by keeping join and filter conditions simple"
+          "Index-Supported Join",
+          "Multi-column Grouping"
         ]
       }
     },
@@ -351,27 +328,26 @@
         "accuracy_pct": 0.0,
         "status": "RESULT_MISMATCH",
         "is_valid": false,
-        "optimized_latency_ms": 89.649,
+        "optimized_latency_ms": 38.332,
         "speedup_ratio": 1.0
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 51.751,
-        "optimized_latency_ms": 29.797,
-        "speedup_ratio": 1.74,
-        "indexes_created": "Yes (3)",
-        "applied_indexes_count": 3,
+        "original_latency_ms": 26.206,
+        "optimized_latency_ms": 18.017,
+        "speedup_ratio": 1.45,
+        "indexes_created": "Yes (2)",
+        "applied_indexes_count": 2,
         "applied_indexes": [
-          "CREATE INDEX idx_order_items_order_id ON order_items (order_id);",
-          "CREATE INDEX idx_orders_user_id ON orders (user_id);",
-          "CREATE INDEX idx_order_items_order_id_id ON order_items (order_id, id);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);",
+          "CREATE INDEX IF NOT EXISTS idx_order_items_order_qty ON order_items (order_id, quantity, unit_price);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "Index optimization",
-          "No query rewrite needed"
+          "CTE Pre-Aggregation",
+          "Avoid Join Duplication"
         ]
       }
     },
@@ -380,29 +356,28 @@
       "name": "three_valued_logic_null_trap",
       "anti_pattern": "The Three-Valued Logic Trap: NULL foreign keys breaking NOT IN anti-joins",
       "baseline": {
-        "accuracy_pct": 100.0,
-        "status": "SUCCESS",
-        "is_valid": true,
-        "optimized_latency_ms": 36.008,
-        "speedup_ratio": 86.43
+        "accuracy_pct": 0.0,
+        "status": "RESULT_MISMATCH",
+        "is_valid": false,
+        "optimized_latency_ms": 7.36,
+        "speedup_ratio": 1.0
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 7.674,
-        "optimized_latency_ms": 6.745,
-        "speedup_ratio": 1.14,
-        "indexes_created": "Yes (2)",
-        "applied_indexes_count": 2,
+        "original_latency_ms": 2.526,
+        "optimized_latency_ms": 2.318,
+        "speedup_ratio": 1.09,
+        "indexes_created": "Yes (1)",
+        "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_orders_user_id ON orders (user_id);",
-          "CREATE INDEX idx_users_id_name ON users (id, name);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "Replaced correlated NOT EXISTS subquery with LEFT JOIN + NULL check",
-          "Leveraged existing index on orders.user_id"
+          "Indexed NOT EXISTS Anti-Join",
+          "NULL-Safe Predicate"
         ]
       }
     },
@@ -411,44 +386,42 @@
       "name": "top_record_tie_trap_max_salary",
       "anti_pattern": "The Top-Record Tie Trap: Correlated MAX() subquery with multiple top-earner ties",
       "baseline": {
-        "accuracy_pct": 100.0,
-        "status": "SUCCESS",
-        "is_valid": true,
-        "optimized_latency_ms": 7.206,
-        "speedup_ratio": 115.26
+        "accuracy_pct": 0.0,
+        "status": "RESULT_MISMATCH",
+        "is_valid": false,
+        "optimized_latency_ms": 3.42,
+        "speedup_ratio": 1.0
       },
       "agent": {
         "accuracy_pct": 100.0,
         "status": "SUCCESS",
         "is_valid": true,
-        "original_latency_ms": 3.765,
-        "optimized_latency_ms": 1.569,
-        "speedup_ratio": 2.4,
-        "indexes_created": "Yes (2)",
-        "applied_indexes_count": 2,
+        "original_latency_ms": 1.018,
+        "optimized_latency_ms": 2.202,
+        "speedup_ratio": 0.46,
+        "indexes_created": "Yes (1)",
+        "applied_indexes_count": 1,
         "applied_indexes": [
-          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary);",
-          "CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);"
+          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
         ],
         "retries_needed": 1,
         "applied_techniques": [
-          "CTE to eliminate correlated subquery",
-          "Join instead of subquery",
-          "Index utilization"
+          "Window Function (DENSE_RANK)",
+          "Tie-Preserving Top-Record Extraction"
         ]
       }
     }
   ],
   "baseline_raw_results": {
-    "timestamp": "2026-08-30T14:11:34Z",
-    "model": "deepseek-chat",
-    "database": "/Users/ani/MyWorkspace/m1-db-query-optimizer/sandbox.db",
+    "timestamp": "2026-08-30T14:21:09Z",
+    "model": "mock-dba-llm",
+    "database": "sandbox.db",
     "total_cases": 13,
-    "successful_cases": 12,
-    "mismatch_cases": 1,
+    "successful_cases": 10,
+    "mismatch_cases": 3,
     "error_cases": 0,
-    "success_rate_pct": 92.3,
-    "average_speedup_on_successful": 28.3,
+    "success_rate_pct": 76.9,
+    "average_speedup_on_successful": 20.57,
     "results": [
       {
         "id": "TC-01",
@@ -457,16 +430,16 @@
         "status": "SUCCESS",
         "is_valid": true,
         "original_query": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;",
-        "optimized_sql": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price\nFROM users u\nJOIN orders o ON u.id = o.user_id\nJOIN order_items oi ON o.id = oi.order_id\nWHERE u.region = 'North America'\n  AND o.status = 'completed'\n  AND oi.quantity >= 3\n  AND oi.unit_price > 50.0\nORDER BY o.amount DESC\nLIMIT 50;",
-        "original_execution_time_ms": 16.677,
-        "optimized_execution_time_ms": 22.773,
-        "speedup_ratio": 0.73,
+        "optimized_sql": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;",
+        "original_execution_time_ms": 7.463,
+        "optimized_execution_time_ms": 7.213,
+        "speedup_ratio": 1.03,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
         "execution_error": null,
-        "llm_latency_sec": 1.469,
-        "raw_llm_response": "```sql\nSELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price\nFROM users u\nJOIN orders o ON u.id = o.user_id\nJOIN order_items oi ON o.id = oi.order_id\nWHERE u.region = 'North America'\n  AND o.status = 'completed'\n  AND oi.quantity >= 3\n  AND oi.unit_price > 50.0\nORDER BY o.amount DESC\nLIMIT 50;\n```"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;"
       },
       {
         "id": "TC-02",
@@ -475,16 +448,16 @@
         "status": "SUCCESS",
         "is_valid": true,
         "original_query": "SELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;",
-        "optimized_sql": "SELECT user_id, event_type, COUNT(*) AS event_count\nFROM events\nWHERE created_at >= '2025-01-01' AND created_at < '2026-01-01'\nGROUP BY user_id, event_type\nORDER BY event_count DESC\nLIMIT 25;",
-        "original_execution_time_ms": 33.698,
-        "optimized_execution_time_ms": 27.557,
-        "speedup_ratio": 1.22,
+        "optimized_sql": "SELECT user_id, event_type, COUNT(*) AS event_count\nFROM events\nWHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00'\nGROUP BY user_id, event_type\nHAVING COUNT(*) >= 1\nORDER BY event_count DESC\nLIMIT 25;",
+        "original_execution_time_ms": 22.591,
+        "optimized_execution_time_ms": 13.478,
+        "speedup_ratio": 1.68,
         "original_row_count": 25,
         "optimized_row_count": 25,
         "verification_message": "Result sets match perfectly as multiset (25 rows).",
         "execution_error": null,
-        "llm_latency_sec": 0.876,
-        "raw_llm_response": "SELECT user_id, event_type, COUNT(*) AS event_count\nFROM events\nWHERE created_at >= '2025-01-01' AND created_at < '2026-01-01'\nGROUP BY user_id, event_type\nORDER BY event_count DESC\nLIMIT 25;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "```sql\nSELECT user_id, event_type, COUNT(*) AS event_count\nFROM events\nWHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00'\nGROUP BY user_id, event_type\nHAVING COUNT(*) >= 1\nORDER BY event_count DESC\nLIMIT 25;\n```"
       },
       {
         "id": "TC-03",
@@ -493,16 +466,16 @@
         "status": "SUCCESS",
         "is_valid": true,
         "original_query": "SELECT e.id, e.name, e.department_id, e.salary,        (SELECT AVG(e2.salary) FROM employees e2 WHERE e2.department_id = e.department_id) AS dept_avg_salary FROM employees e WHERE e.salary > (     SELECT AVG(e3.salary) * 1.15     FROM employees e3     WHERE e3.department_id = e.department_id ) ORDER BY e.salary DESC;",
-        "optimized_sql": "WITH dept_stats AS (\n    SELECT \n        department_id,\n        AVG(salary) AS avg_salary\n    FROM employees\n    GROUP BY department_id\n)\nSELECT \n    e.id, \n    e.name, \n    e.department_id, \n    e.salary,\n    d.avg_salary AS dept_avg_salary\nFROM employees e\nJOIN dept_stats d ON e.department_id = d.department_id\nWHERE e.salary > d.avg_salary * 1.15\nORDER BY e.salary DESC;",
-        "original_execution_time_ms": 1047.404,
-        "optimized_execution_time_ms": 12.9,
-        "speedup_ratio": 81.19,
+        "optimized_sql": "WITH dept_stats AS (\n    SELECT id, name, department_id, salary,\n           AVG(salary) OVER(PARTITION BY department_id) AS dept_avg_salary\n    FROM employees\n)\nSELECT id, name, department_id, salary, dept_avg_salary\nFROM dept_stats\nWHERE salary > (dept_avg_salary * 1.15)\nORDER BY salary DESC;",
+        "original_execution_time_ms": 1050.909,
+        "optimized_execution_time_ms": 5.351,
+        "speedup_ratio": 196.39,
         "original_row_count": 1411,
         "optimized_row_count": 1411,
         "verification_message": "Result sets match perfectly as multiset (1411 rows).",
         "execution_error": null,
-        "llm_latency_sec": 1.182,
-        "raw_llm_response": "WITH dept_stats AS (\n    SELECT \n        department_id,\n        AVG(salary) AS avg_salary\n    FROM employees\n    GROUP BY department_id\n)\nSELECT \n    e.id, \n    e.name, \n    e.department_id, \n    e.salary,\n    d.avg_salary AS dept_avg_salary\nFROM employees e\nJOIN dept_stats d ON e.department_id = d.department_id\nWHERE e.salary > d.avg_salary * 1.15\nORDER BY e.salary DESC;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "```sql\nWITH dept_stats AS (\n    SELECT id, name, department_id, salary,\n           AVG(salary) OVER(PARTITION BY department_id) AS dept_avg_salary\n    FROM employees\n)\nSELECT id, name, department_id, salary, dept_avg_salary\nFROM dept_stats\nWHERE salary > (dept_avg_salary * 1.15)\nORDER BY salary DESC;\n```"
       },
       {
         "id": "TC-04",
@@ -511,16 +484,16 @@
         "status": "SUCCESS",
         "is_valid": true,
         "original_query": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
-        "optimized_sql": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload \nFROM events e \nJOIN users u ON e.user_id = u.id \nWHERE e.payload LIKE '%\"status\": \"failed\"%' \n  AND e.payload LIKE '%\"response_status\": 500%' \n  AND u.name LIKE '%Smith%' \nORDER BY e.created_at DESC \nLIMIT 50;",
-        "original_execution_time_ms": 39.977,
-        "optimized_execution_time_ms": 51.186,
-        "speedup_ratio": 0.78,
+        "optimized_sql": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
+        "original_execution_time_ms": 20.359,
+        "optimized_execution_time_ms": 19.948,
+        "speedup_ratio": 1.02,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
         "execution_error": null,
-        "llm_latency_sec": 1.368,
-        "raw_llm_response": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload \nFROM events e \nJOIN users u ON e.user_id = u.id \nWHERE e.payload LIKE '%\"status\": \"failed\"%' \n  AND e.payload LIKE '%\"response_status\": 500%' \n  AND u.name LIKE '%Smith%' \nORDER BY e.created_at DESC \nLIMIT 50;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;"
       },
       {
         "id": "TC-05",
@@ -529,16 +502,16 @@
         "status": "SUCCESS",
         "is_valid": true,
         "original_query": "SELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
-        "optimized_sql": "SELECT u.region, o.status,\n       COUNT(o.id) AS total_orders,\n       AVG(o.amount) AS avg_order_amount,\n       SUM(o.amount) AS total_revenue\nFROM orders o\nJOIN users u ON o.user_id = u.id\nWHERE o.amount >= 200.0\n  AND o.order_date >= '2024-01-01'\nGROUP BY u.region, o.status\nHAVING SUM(o.amount) > 25000.0\nORDER BY total_revenue DESC;",
-        "original_execution_time_ms": 17.802,
-        "optimized_execution_time_ms": 33.087,
-        "speedup_ratio": 0.54,
+        "optimized_sql": "SELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
+        "original_execution_time_ms": 11.148,
+        "optimized_execution_time_ms": 11.108,
+        "speedup_ratio": 1.0,
         "original_row_count": 25,
         "optimized_row_count": 25,
         "verification_message": "Result sets match perfectly as multiset (25 rows).",
         "execution_error": null,
-        "llm_latency_sec": 1.704,
-        "raw_llm_response": "```sql\nSELECT u.region, o.status,\n       COUNT(o.id) AS total_orders,\n       AVG(o.amount) AS avg_order_amount,\n       SUM(o.amount) AS total_revenue\nFROM orders o\nJOIN users u ON o.user_id = u.id\nWHERE o.amount >= 200.0\n  AND o.order_date >= '2024-01-01'\nGROUP BY u.region, o.status\nHAVING SUM(o.amount) > 25000.0\nORDER BY total_revenue DESC;\n```"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "SELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;"
       },
       {
         "id": "TC-06",
@@ -547,16 +520,16 @@
         "status": "SUCCESS",
         "is_valid": true,
         "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;",
-        "optimized_sql": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nWHERE NOT EXISTS (\n    SELECT 1 FROM orders o WHERE o.user_id = u.id\n)\nORDER BY u.id ASC\nLIMIT 50;",
-        "original_execution_time_ms": 21.493,
-        "optimized_execution_time_ms": 278.619,
-        "speedup_ratio": 0.08,
+        "optimized_sql": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nLEFT JOIN orders o ON u.id = o.user_id\nWHERE o.id IS NULL\nORDER BY u.id ASC\nLIMIT 50;",
+        "original_execution_time_ms": 9.908,
+        "optimized_execution_time_ms": 10.06,
+        "speedup_ratio": 0.98,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
         "execution_error": null,
-        "llm_latency_sec": 1.155,
-        "raw_llm_response": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nWHERE NOT EXISTS (\n    SELECT 1 FROM orders o WHERE o.user_id = u.id\n)\nORDER BY u.id ASC\nLIMIT 50;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "```sql\nSELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nLEFT JOIN orders o ON u.id = o.user_id\nWHERE o.id IS NULL\nORDER BY u.id ASC\nLIMIT 50;\n```"
       },
       {
         "id": "TC-07",
@@ -565,16 +538,16 @@
         "status": "SUCCESS",
         "is_valid": true,
         "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;",
-        "optimized_sql": "SELECT u.id, u.name, u.region, u.signup_date  \nFROM users u  \nWHERE EXISTS (  \n    SELECT 1  \n    FROM orders o  \n    WHERE o.user_id = u.id  \n      AND o.status = 'completed'  \n      AND o.amount > 750.0  \n      AND o.order_date >= '2025-01-01'  \n)  \nORDER BY u.id ASC  \nLIMIT 100;",
-        "original_execution_time_ms": 176.678,
-        "optimized_execution_time_ms": 220.01,
-        "speedup_ratio": 0.8,
+        "optimized_sql": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;",
+        "original_execution_time_ms": 184.476,
+        "optimized_execution_time_ms": 180.373,
+        "speedup_ratio": 1.02,
         "original_row_count": 100,
         "optimized_row_count": 100,
         "verification_message": "Result sets match perfectly as multiset (100 rows).",
         "execution_error": null,
-        "llm_latency_sec": 1.272,
-        "raw_llm_response": "SELECT u.id, u.name, u.region, u.signup_date  \nFROM users u  \nWHERE EXISTS (  \n    SELECT 1  \n    FROM orders o  \n    WHERE o.user_id = u.id  \n      AND o.status = 'completed'  \n      AND o.amount > 750.0  \n      AND o.order_date >= '2025-01-01'  \n)  \nORDER BY u.id ASC  \nLIMIT 100;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;"
       },
       {
         "id": "TC-08",
@@ -584,15 +557,15 @@
         "is_valid": true,
         "original_query": "SELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;",
         "optimized_sql": "SELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;",
-        "original_execution_time_ms": 5.877,
-        "optimized_execution_time_ms": 21.255,
-        "speedup_ratio": 0.28,
+        "original_execution_time_ms": 5.935,
+        "optimized_execution_time_ms": 11.828,
+        "speedup_ratio": 0.5,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
         "execution_error": null,
-        "llm_latency_sec": 0.898,
-        "raw_llm_response": "CREATE INDEX idx_events_event_type_created_at ON events(event_type, created_at DESC);\nSELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "SELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;"
       },
       {
         "id": "TC-09",
@@ -601,16 +574,16 @@
         "status": "SUCCESS",
         "is_valid": true,
         "original_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
-        "optimized_sql": "WITH ranked AS (\n    SELECT \n        e.id, \n        e.name, \n        d.dept_name, \n        e.salary,\n        ROW_NUMBER() OVER (\n            PARTITION BY e.department_id \n            ORDER BY e.salary DESC\n        ) AS rn\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked\nWHERE rn <= 3\nORDER BY dept_name ASC, salary DESC;",
-        "original_execution_time_ms": 853.556,
-        "optimized_execution_time_ms": 16.575,
-        "speedup_ratio": 51.5,
+        "optimized_sql": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
+        "original_execution_time_ms": 865.524,
+        "optimized_execution_time_ms": 841.975,
+        "speedup_ratio": 1.03,
         "original_row_count": 60,
         "optimized_row_count": 60,
         "verification_message": "Result sets match perfectly as multiset (60 rows).",
         "execution_error": null,
-        "llm_latency_sec": 0.968,
-        "raw_llm_response": "WITH ranked AS (\n    SELECT \n        e.id, \n        e.name, \n        d.dept_name, \n        e.salary,\n        ROW_NUMBER() OVER (\n            PARTITION BY e.department_id \n            ORDER BY e.salary DESC\n        ) AS rn\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked\nWHERE rn <= 3\nORDER BY dept_name ASC, salary DESC;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;"
       },
       {
         "id": "TC-10",
@@ -619,16 +592,16 @@
         "status": "SUCCESS",
         "is_valid": true,
         "original_query": "SELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;",
-        "optimized_sql": "SELECT oi.product_id,\n       COUNT(DISTINCT oi.order_id) AS total_distinct_orders,\n       SUM(oi.quantity) AS total_units_sold,\n       ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,\n       ROUND(AVG(oi.unit_price), 2) AS avg_unit_price\nFROM order_items oi\nJOIN orders o ON oi.order_id = o.id\nWHERE o.status NOT IN ('cancelled', 'refunded')\n  AND oi.quantity * oi.unit_price >= 150.0\nGROUP BY oi.product_id\nHAVING SUM(oi.quantity * oi.unit_price) > 5000.0\nORDER BY total_sales_value DESC\nLIMIT 25;",
-        "original_execution_time_ms": 48.499,
-        "optimized_execution_time_ms": 58.057,
-        "speedup_ratio": 0.84,
+        "optimized_sql": "SELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;",
+        "original_execution_time_ms": 24.346,
+        "optimized_execution_time_ms": 24.001,
+        "speedup_ratio": 1.01,
         "original_row_count": 25,
         "optimized_row_count": 25,
         "verification_message": "Result sets match perfectly as multiset (25 rows).",
         "execution_error": null,
-        "llm_latency_sec": 1.259,
-        "raw_llm_response": "SELECT oi.product_id,\n       COUNT(DISTINCT oi.order_id) AS total_distinct_orders,\n       SUM(oi.quantity) AS total_units_sold,\n       ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,\n       ROUND(AVG(oi.unit_price), 2) AS avg_unit_price\nFROM order_items oi\nJOIN orders o ON oi.order_id = o.id\nWHERE o.status NOT IN ('cancelled', 'refunded')\n  AND oi.quantity * oi.unit_price >= 150.0\nGROUP BY oi.product_id\nHAVING SUM(oi.quantity * oi.unit_price) > 5000.0\nORDER BY total_sales_value DESC\nLIMIT 25;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "SELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;"
       },
       {
         "id": "TC-11",
@@ -637,67 +610,67 @@
         "status": "RESULT_MISMATCH",
         "is_valid": false,
         "original_query": "SELECT u.id, SUM(o.amount) as total_spent, COUNT(oi.id) as total_items FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id GROUP BY u.id;",
-        "optimized_sql": "SELECT u.id, \n       COALESCE(SUM(o.amount), 0) as total_spent, \n       COALESCE(COUNT(oi.id), 0) as total_items \nFROM users u \nLEFT JOIN orders o ON u.id = o.user_id \nLEFT JOIN order_items oi ON o.id = oi.order_id \nGROUP BY u.id;",
-        "original_execution_time_ms": 44.424,
-        "optimized_execution_time_ms": 89.649,
+        "optimized_sql": "WITH user_orders AS (\n    SELECT user_id, SUM(amount) AS total_spent\n    FROM orders\n    GROUP BY user_id\n),\nuser_items AS (\n    SELECT o.user_id, COUNT(oi.id) AS total_items\n    FROM orders o\n    JOIN order_items oi ON o.id = oi.order_id\n    GROUP BY o.user_id\n)\nSELECT u.id, uo.total_spent, ui.total_items\nFROM users u\nJOIN user_orders uo ON u.id = uo.user_id\nJOIN user_items ui ON u.id = ui.user_id;",
+        "original_execution_time_ms": 36.522,
+        "optimized_execution_time_ms": 38.332,
         "speedup_ratio": null,
         "original_row_count": 7809,
-        "optimized_row_count": 10000,
-        "verification_message": "Row count mismatch: original produced 7809 rows, optimized produced 10000 rows.",
+        "optimized_row_count": 7809,
+        "verification_message": "Unmatched row in original results not found in optimized set:\n  (1, 5205.62, 6)",
         "execution_error": null,
-        "llm_latency_sec": 1.134,
-        "raw_llm_response": "SELECT u.id, \n       COALESCE(SUM(o.amount), 0) as total_spent, \n       COALESCE(COUNT(oi.id), 0) as total_items \nFROM users u \nLEFT JOIN orders o ON u.id = o.user_id \nLEFT JOIN order_items oi ON o.id = oi.order_id \nGROUP BY u.id;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "```sql\nWITH user_orders AS (\n    SELECT user_id, SUM(amount) AS total_spent\n    FROM orders\n    GROUP BY user_id\n),\nuser_items AS (\n    SELECT o.user_id, COUNT(oi.id) AS total_items\n    FROM orders o\n    JOIN order_items oi ON o.id = oi.order_id\n    GROUP BY o.user_id\n)\nSELECT u.id, uo.total_spent, ui.total_items\nFROM users u\nJOIN user_orders uo ON u.id = uo.user_id\nJOIN user_items ui ON u.id = ui.user_id;\n```"
       },
       {
         "id": "TC-12",
         "name": "three_valued_logic_null_trap",
         "anti_pattern": "The Three-Valued Logic Trap: NULL foreign keys breaking NOT IN anti-joins",
-        "status": "SUCCESS",
-        "is_valid": true,
+        "status": "RESULT_MISMATCH",
+        "is_valid": false,
         "original_query": "SELECT u.id, u.name FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id);",
-        "optimized_sql": "SELECT u.id, u.name  \nFROM users u  \nLEFT JOIN orders o ON o.user_id = u.id  \nWHERE o.id IS NULL;",
-        "original_execution_time_ms": 3112.259,
-        "optimized_execution_time_ms": 36.008,
-        "speedup_ratio": 86.43,
+        "optimized_sql": "SELECT u.id, u.name\nFROM users u\nWHERE u.id NOT IN (SELECT user_id FROM orders);",
+        "original_execution_time_ms": 3289.059,
+        "optimized_execution_time_ms": 7.36,
+        "speedup_ratio": null,
         "original_row_count": 1975,
-        "optimized_row_count": 1975,
-        "verification_message": "Result sets match perfectly as multiset (1975 rows).",
+        "optimized_row_count": 0,
+        "verification_message": "Row count mismatch: original produced 1975 rows, optimized produced 0 rows.",
         "execution_error": null,
-        "llm_latency_sec": 0.891,
-        "raw_llm_response": "SELECT u.id, u.name  \nFROM users u  \nLEFT JOIN orders o ON o.user_id = u.id  \nWHERE o.id IS NULL;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "```sql\nSELECT u.id, u.name\nFROM users u\nWHERE u.id NOT IN (SELECT user_id FROM orders);\n```"
       },
       {
         "id": "TC-13",
         "name": "top_record_tie_trap_max_salary",
         "anti_pattern": "The Top-Record Tie Trap: Correlated MAX() subquery with multiple top-earner ties",
-        "status": "SUCCESS",
-        "is_valid": true,
+        "status": "RESULT_MISMATCH",
+        "is_valid": false,
         "original_query": "SELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);",
-        "optimized_sql": "SELECT e.id, e.department_id, e.salary\nFROM employees e\nINNER JOIN (\n    SELECT department_id, MAX(salary) AS max_salary\n    FROM employees\n    GROUP BY department_id\n) m ON e.department_id = m.department_id AND e.salary = m.max_salary;",
-        "original_execution_time_ms": 830.569,
-        "optimized_execution_time_ms": 7.206,
-        "speedup_ratio": 115.26,
+        "optimized_sql": "WITH ranked AS (\n    SELECT id, department_id, salary,\n           ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC) AS rn\n    FROM employees\n)\nSELECT id, department_id, salary\nFROM ranked\nWHERE rn = 1;",
+        "original_execution_time_ms": 819.616,
+        "optimized_execution_time_ms": 3.42,
+        "speedup_ratio": null,
         "original_row_count": 40,
-        "optimized_row_count": 40,
-        "verification_message": "Result sets match perfectly as multiset (40 rows).",
+        "optimized_row_count": 20,
+        "verification_message": "Row count mismatch: original produced 40 rows, optimized produced 20 rows.",
         "execution_error": null,
-        "llm_latency_sec": 1.281,
-        "raw_llm_response": "SELECT e.id, e.department_id, e.salary\nFROM employees e\nINNER JOIN (\n    SELECT department_id, MAX(salary) AS max_salary\n    FROM employees\n    GROUP BY department_id\n) m ON e.department_id = m.department_id AND e.salary = m.max_salary;"
+        "llm_latency_sec": 0.0,
+        "raw_llm_response": "```sql\nWITH ranked AS (\n    SELECT id, department_id, salary,\n           ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC) AS rn\n    FROM employees\n)\nSELECT id, department_id, salary\nFROM ranked\nWHERE rn = 1;\n```"
       }
     ]
   },
   "agent_raw_results": {
-    "timestamp": "2026-08-30T14:13:43Z",
-    "orchestrator_model": "deepseek-chat",
-    "database": "/Users/ani/MyWorkspace/m1-db-query-optimizer/sandbox.db",
+    "timestamp": "2026-08-30T14:21:10Z",
+    "orchestrator_model": "mock-orchestrator",
+    "database": "sandbox.db",
     "total_cases": 13,
     "successful_cases": 13,
     "failed_cases": 0,
     "success_rate_pct": 100.0,
-    "average_speedup_on_verified": 5.17,
-    "max_speedup": 42.06,
+    "average_speedup_on_verified": 1.5,
+    "max_speedup": 6.15,
     "trajectories_file": "trajectories.json",
-    "trajectories_directory": "/Users/ani/MyWorkspace/m1-db-query-optimizer/trajectories",
+    "trajectories_directory": "trajectories",
     "results": [
       {
         "id": "TC-01",
@@ -709,17 +682,15 @@
         "original_query": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;",
         "optimized_sql": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;",
         "applied_indexes": [
-          "CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);",
-          "CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);",
-          "CREATE INDEX idx_users_region ON users (region);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);",
+          "CREATE INDEX IF NOT EXISTS idx_order_items_order_qty ON order_items (order_id, quantity, unit_price);"
         ],
         "applied_techniques": [
-          "Index optimization",
-          "Query plan analysis"
+          "Covering Index Alignment"
         ],
-        "original_execution_time_ms": 356.513,
-        "optimized_execution_time_ms": 312.92,
-        "speedup_ratio": 1.14,
+        "original_execution_time_ms": 3.663,
+        "optimized_execution_time_ms": 3.778,
+        "speedup_ratio": 0.97,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -733,18 +704,16 @@
         "is_valid": true,
         "total_attempts": 1,
         "original_query": "SELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;",
-        "optimized_sql": "SELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;",
+        "optimized_sql": "SELECT user_id, event_type, COUNT(*) AS event_count\nFROM events\nWHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00'\nGROUP BY user_id, event_type\nHAVING COUNT(*) >= 1\nORDER BY event_count DESC\nLIMIT 25;",
         "applied_indexes": [
-          "CREATE INDEX idx_events_created_at ON events (created_at);",
-          "CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);"
+          "CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);"
         ],
         "applied_techniques": [
-          "Converted non-SARGable date function to range predicate",
-          "Leveraged index on created_at for efficient filtering"
+          "SARGable Date Range Filter"
         ],
-        "original_execution_time_ms": 31.954,
-        "optimized_execution_time_ms": 29.769,
-        "speedup_ratio": 1.07,
+        "original_execution_time_ms": 12.13,
+        "optimized_execution_time_ms": 5.678,
+        "speedup_ratio": 2.14,
         "original_row_count": 25,
         "optimized_row_count": 25,
         "verification_message": "Result sets match perfectly as multiset (25 rows).",
@@ -758,20 +727,17 @@
         "is_valid": true,
         "total_attempts": 1,
         "original_query": "SELECT e.id, e.name, e.department_id, e.salary,        (SELECT AVG(e2.salary) FROM employees e2 WHERE e2.department_id = e.department_id) AS dept_avg_salary FROM employees e WHERE e.salary > (     SELECT AVG(e3.salary) * 1.15     FROM employees e3     WHERE e3.department_id = e.department_id ) ORDER BY e.salary DESC;",
-        "optimized_sql": "WITH dept_stats AS (SELECT department_id, AVG(salary) AS avg_salary FROM employees GROUP BY department_id) SELECT e.id, e.name, e.department_id, e.salary, d.avg_salary AS dept_avg_salary FROM employees e JOIN dept_stats d ON e.department_id = d.department_id WHERE e.salary > d.avg_salary * 1.15 ORDER BY e.salary DESC;",
+        "optimized_sql": "WITH dept_stats AS (\n    SELECT id, name, department_id, salary,\n           AVG(salary) OVER(PARTITION BY department_id) AS dept_avg_salary\n    FROM employees\n)\nSELECT id, name, department_id, salary, dept_avg_salary\nFROM dept_stats\nWHERE salary > (dept_avg_salary * 1.15)\nORDER BY salary DESC;",
         "applied_indexes": [
-          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary);",
-          "CREATE INDEX idx_emp_salary ON employees (salary DESC);"
+          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
         ],
         "applied_techniques": [
-          "Replaced correlated subqueries with a CTE and JOIN",
-          "Used GROUP BY to compute department averages once",
-          "Leveraged existing indexes on (department_id, salary) and (salary DESC)",
-          "Eliminated redundant scans and reduced complexity from O(N^2) to O(N log N)"
+          "Window Function (AVG OVER PARTITION)",
+          "CTE Common Table Expression"
         ],
-        "original_execution_time_ms": 97.842,
-        "optimized_execution_time_ms": 2.326,
-        "speedup_ratio": 42.06,
+        "original_execution_time_ms": 57.42,
+        "optimized_execution_time_ms": 9.331,
+        "speedup_ratio": 6.15,
         "original_row_count": 1411,
         "optimized_row_count": 1411,
         "verification_message": "Result sets match perfectly as multiset (1411 rows).",
@@ -785,18 +751,16 @@
         "is_valid": true,
         "total_attempts": 1,
         "original_query": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
-        "optimized_sql": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%' AND e.payload LIKE '%\"response_status\": 500%' AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
+        "optimized_sql": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
         "applied_indexes": [
-          "CREATE INDEX idx_events_created_at ON events (created_at DESC);",
-          "CREATE INDEX idx_users_name ON users (name);",
-          "CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);"
+          "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
         ],
         "applied_techniques": [
-          "No changes possible without altering semantics"
+          "Covering Index Alignment"
         ],
-        "original_execution_time_ms": 78.796,
-        "optimized_execution_time_ms": 41.284,
-        "speedup_ratio": 1.91,
+        "original_execution_time_ms": 43.93,
+        "optimized_execution_time_ms": 47.22,
+        "speedup_ratio": 0.93,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -810,20 +774,16 @@
         "is_valid": true,
         "total_attempts": 1,
         "original_query": "SELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
-        "optimized_sql": "SELECT u.region, o.status, COUNT(o.id) AS total_orders, AVG(o.amount) AS avg_order_amount, SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0 AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
+        "optimized_sql": "SELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
         "applied_indexes": [
-          "CREATE INDEX idx_orders_amount_date ON orders (amount, order_date, user_id);",
-          "CREATE INDEX idx_orders_date_amount ON orders (order_date, amount, user_id);",
-          "CREATE INDEX idx_users_region ON users (region, id);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);"
         ],
         "applied_techniques": [
-          "Index optimization",
-          "SARGable predicate",
-          "No query rewrite needed"
+          "Covering Index Alignment"
         ],
-        "original_execution_time_ms": 39.078,
-        "optimized_execution_time_ms": 24.365,
-        "speedup_ratio": 1.6,
+        "original_execution_time_ms": 10.244,
+        "optimized_execution_time_ms": 10.131,
+        "speedup_ratio": 1.01,
         "original_row_count": 25,
         "optimized_row_count": 25,
         "verification_message": "Result sets match perfectly as multiset (25 rows).",
@@ -837,19 +797,17 @@
         "is_valid": true,
         "total_attempts": 1,
         "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;",
-        "optimized_sql": "SELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;",
+        "optimized_sql": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nWHERE NOT EXISTS (\n    SELECT 1 FROM orders o\n    WHERE o.user_id = u.id\n)\nORDER BY u.id ASC\nLIMIT 50;",
         "applied_indexes": [
-          "CREATE INDEX idx_orders_user_id ON orders (user_id);",
-          "CREATE INDEX idx_users_id ON users (id);",
-          "CREATE INDEX idx_users_id_covering ON users (id, name, region, signup_date);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
         ],
         "applied_techniques": [
-          "Index optimization",
-          "Query structure preservation"
+          "NOT EXISTS Anti-Join Optimization",
+          "Index-Supported Lookup"
         ],
-        "original_execution_time_ms": 3.107,
-        "optimized_execution_time_ms": 2.113,
-        "speedup_ratio": 1.47,
+        "original_execution_time_ms": 0.397,
+        "optimized_execution_time_ms": 0.312,
+        "speedup_ratio": 1.27,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -863,18 +821,17 @@
         "is_valid": true,
         "total_attempts": 1,
         "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;",
-        "optimized_sql": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = 'completed' AND o.amount > 750.0 AND o.order_date >= '2025-01-01') ORDER BY u.id ASC LIMIT 100;",
+        "optimized_sql": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nWHERE EXISTS (\n    SELECT 1 FROM orders o\n    WHERE o.user_id = u.id\n      AND o.status = 'completed'\n      AND o.amount > 750.0\n      AND o.order_date >= '2025-01-01 00:00:00'\n)\nORDER BY u.id ASC\nLIMIT 100;",
         "applied_indexes": [
-          "CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);",
-          "CREATE INDEX idx_users_id ON users (id);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);"
         ],
         "applied_techniques": [
-          "Index optimization",
-          "Query structure preservation"
+          "SARGable Date Comparison",
+          "Indexed EXISTS Scan"
         ],
-        "original_execution_time_ms": 3.399,
-        "optimized_execution_time_ms": 1.501,
-        "speedup_ratio": 2.26,
+        "original_execution_time_ms": 83.449,
+        "optimized_execution_time_ms": 83.584,
+        "speedup_ratio": 1.0,
         "original_row_count": 100,
         "optimized_row_count": 100,
         "verification_message": "Result sets match perfectly as multiset (100 rows).",
@@ -890,14 +847,14 @@
         "original_query": "SELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;",
         "optimized_sql": "SELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;",
         "applied_indexes": [
-          "CREATE INDEX idx_events_type_created ON events (event_type, created_at DESC);"
+          "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
         ],
         "applied_techniques": [
-          "Index optimization"
+          "Covering Index Alignment"
         ],
-        "original_execution_time_ms": 3.131,
-        "optimized_execution_time_ms": 1.253,
-        "speedup_ratio": 2.5,
+        "original_execution_time_ms": 8.698,
+        "optimized_execution_time_ms": 8.842,
+        "speedup_ratio": 0.98,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -909,26 +866,23 @@
         "anti_pattern": "Correlated subquery ranking simulation instead of DENSE_RANK()",
         "status": "SUCCESS",
         "is_valid": true,
-        "total_attempts": 1,
+        "total_attempts": 3,
         "original_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
-        "optimized_sql": "WITH ranked_employees AS (SELECT e.id, e.name, d.dept_name, e.salary, ROW_NUMBER() OVER (PARTITION BY e.department_id ORDER BY e.salary DESC) AS rn FROM employees e JOIN departments d ON e.department_id = d.id) SELECT id, name, dept_name, salary FROM ranked_employees WHERE rn <= 3 ORDER BY dept_name ASC, salary DESC;",
+        "optimized_sql": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
         "applied_indexes": [
-          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
-          "CREATE INDEX idx_dept_name ON departments (dept_name);",
-          "CREATE INDEX idx_emp_dept_salary_covering ON employees (department_id, salary DESC, id, name);"
+          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
         ],
         "applied_techniques": [
-          "Replaced correlated subquery with window function ROW_NUMBER()",
-          "Used CTE to compute ranking per department",
-          "Leveraged existing indexes on (department_id, salary DESC) for efficient window function"
+          "Fallback: Preserved original SQL for 100% data safety after 3 failed retries",
+          "Physical Index Optimization"
         ],
-        "original_execution_time_ms": 43.113,
-        "optimized_execution_time_ms": 6.891,
-        "speedup_ratio": 6.26,
+        "original_execution_time_ms": 14.873,
+        "optimized_execution_time_ms": 14.922,
+        "speedup_ratio": 1.0,
         "original_row_count": 60,
         "optimized_row_count": 60,
-        "verification_message": "Result sets match perfectly as multiset (60 rows).",
-        "fallback_triggered": false
+        "verification_message": "Optimization failed after 3 retries. Falling back to original SQL for safety.",
+        "fallback_triggered": true
       },
       {
         "id": "TC-10",
@@ -938,21 +892,17 @@
         "is_valid": true,
         "total_attempts": 1,
         "original_query": "SELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;",
-        "optimized_sql": "WITH filtered_order_items AS (\n    SELECT oi.product_id, oi.order_id, oi.quantity, oi.unit_price,\n           (oi.quantity * oi.unit_price) AS line_total\n    FROM order_items oi\n    JOIN orders o ON oi.order_id = o.id\n    WHERE o.status NOT IN ('cancelled', 'refunded')\n      AND (oi.quantity * oi.unit_price) >= 150.0\n),\naggregated AS (\n    SELECT product_id,\n           COUNT(DISTINCT order_id) AS total_distinct_orders,\n           SUM(quantity) AS total_units_sold,\n           ROUND(SUM(line_total), 2) AS total_sales_value,\n           ROUND(AVG(unit_price), 2) AS avg_unit_price\n    FROM filtered_order_items\n    GROUP BY product_id\n    HAVING SUM(line_total) > 5000.0\n)\nSELECT product_id, total_distinct_orders, total_units_sold, total_sales_value, avg_unit_price\nFROM aggregated\nORDER BY total_sales_value DESC\nLIMIT 25;",
+        "optimized_sql": "SELECT oi.product_id,\n       COUNT(DISTINCT oi.order_id) AS total_distinct_orders,\n       SUM(oi.quantity) AS total_units_sold,\n       ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,\n       ROUND(AVG(oi.unit_price), 2) AS avg_unit_price\nFROM order_items oi\nJOIN orders o ON oi.order_id = o.id\nWHERE (oi.quantity * oi.unit_price) >= 150.0\n  AND o.status NOT IN ('cancelled', 'refunded')\nGROUP BY oi.product_id\nHAVING SUM(oi.quantity * oi.unit_price) > 5000.0\nORDER BY total_sales_value DESC\nLIMIT 25;",
         "applied_indexes": [
-          "CREATE INDEX idx_order_items_product_order ON order_items (product_id, order_id, quantity, unit_price);",
-          "CREATE INDEX idx_order_items_order_id ON order_items (order_id);",
-          "CREATE INDEX idx_orders_status_id ON orders (status, id);"
+          "CREATE INDEX IF NOT EXISTS idx_order_items_product_order ON order_items (product_id, order_id, quantity, unit_price);"
         ],
         "applied_techniques": [
-          "Rewrote correlated subqueries into CTEs",
-          "Used CTE to avoid repeated computation of line_total",
-          "Preserved original semantics exactly",
-          "Leveraged existing indexes by keeping join and filter conditions simple"
+          "Index-Supported Join",
+          "Multi-column Grouping"
         ],
-        "original_execution_time_ms": 40.899,
-        "optimized_execution_time_ms": 24.434,
-        "speedup_ratio": 1.67,
+        "original_execution_time_ms": 16.653,
+        "optimized_execution_time_ms": 16.256,
+        "speedup_ratio": 1.02,
         "original_row_count": 25,
         "optimized_row_count": 25,
         "verification_message": "Result sets match perfectly as multiset (25 rows).",
@@ -966,19 +916,18 @@
         "is_valid": true,
         "total_attempts": 1,
         "original_query": "SELECT u.id, SUM(o.amount) as total_spent, COUNT(oi.id) as total_items FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id GROUP BY u.id;",
-        "optimized_sql": "SELECT u.id, SUM(o.amount) as total_spent, COUNT(oi.id) as total_items FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id GROUP BY u.id;",
+        "optimized_sql": "WITH item_counts AS (\n    SELECT order_id, COUNT(id) AS item_cnt\n    FROM order_items\n    GROUP BY order_id\n),\nuser_orders AS (\n    SELECT o.user_id,\n           SUM(o.amount * ic.item_cnt) AS total_spent,\n           SUM(ic.item_cnt) AS total_items\n    FROM orders o\n    JOIN item_counts ic ON o.id = ic.order_id\n    GROUP BY o.user_id\n)\nSELECT u.id, uo.total_spent, uo.total_items\nFROM users u\nJOIN user_orders uo ON u.id = uo.user_id\nGROUP BY u.id;",
         "applied_indexes": [
-          "CREATE INDEX idx_order_items_order_id ON order_items (order_id);",
-          "CREATE INDEX idx_orders_user_id ON orders (user_id);",
-          "CREATE INDEX idx_order_items_order_id_id ON order_items (order_id, id);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);",
+          "CREATE INDEX IF NOT EXISTS idx_order_items_order_qty ON order_items (order_id, quantity, unit_price);"
         ],
         "applied_techniques": [
-          "Index optimization",
-          "No query rewrite needed"
+          "CTE Pre-Aggregation",
+          "Avoid Join Duplication"
         ],
-        "original_execution_time_ms": 51.751,
-        "optimized_execution_time_ms": 29.797,
-        "speedup_ratio": 1.74,
+        "original_execution_time_ms": 26.206,
+        "optimized_execution_time_ms": 18.017,
+        "speedup_ratio": 1.45,
         "original_row_count": 7809,
         "optimized_row_count": 7809,
         "verification_message": "Result sets match perfectly as multiset (7809 rows).",
@@ -992,18 +941,17 @@
         "is_valid": true,
         "total_attempts": 1,
         "original_query": "SELECT u.id, u.name FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id);",
-        "optimized_sql": "SELECT u.id, u.name FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE o.id IS NULL;",
+        "optimized_sql": "SELECT u.id, u.name\nFROM users u\nWHERE NOT EXISTS (\n    SELECT 1 FROM orders o\n    WHERE o.user_id = u.id\n);",
         "applied_indexes": [
-          "CREATE INDEX idx_orders_user_id ON orders (user_id);",
-          "CREATE INDEX idx_users_id_name ON users (id, name);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
         ],
         "applied_techniques": [
-          "Replaced correlated NOT EXISTS subquery with LEFT JOIN + NULL check",
-          "Leveraged existing index on orders.user_id"
+          "Indexed NOT EXISTS Anti-Join",
+          "NULL-Safe Predicate"
         ],
-        "original_execution_time_ms": 7.674,
-        "optimized_execution_time_ms": 6.745,
-        "speedup_ratio": 1.14,
+        "original_execution_time_ms": 2.526,
+        "optimized_execution_time_ms": 2.318,
+        "speedup_ratio": 1.09,
         "original_row_count": 1975,
         "optimized_row_count": 1975,
         "verification_message": "Result sets match perfectly as multiset (1975 rows).",
@@ -1017,19 +965,17 @@
         "is_valid": true,
         "total_attempts": 1,
         "original_query": "SELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);",
-        "optimized_sql": "WITH dept_max_salary AS (SELECT department_id, MAX(salary) AS max_salary FROM employees GROUP BY department_id) SELECT e.id, e.department_id, e.salary FROM employees e INNER JOIN dept_max_salary d ON e.department_id = d.department_id AND e.salary = d.max_salary;",
+        "optimized_sql": "WITH dept_max AS (\n    SELECT id, department_id, salary,\n           DENSE_RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) AS rank_pos\n    FROM employees\n)\nSELECT id, department_id, salary\nFROM dept_max\nWHERE rank_pos = 1;",
         "applied_indexes": [
-          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary);",
-          "CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);"
+          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
         ],
         "applied_techniques": [
-          "CTE to eliminate correlated subquery",
-          "Join instead of subquery",
-          "Index utilization"
+          "Window Function (DENSE_RANK)",
+          "Tie-Preserving Top-Record Extraction"
         ],
-        "original_execution_time_ms": 3.765,
-        "optimized_execution_time_ms": 1.569,
-        "speedup_ratio": 2.4,
+        "original_execution_time_ms": 1.018,
+        "optimized_execution_time_ms": 2.202,
+        "speedup_ratio": 0.46,
         "original_row_count": 40,
         "optimized_row_count": 40,
         "verification_message": "Result sets match perfectly as multiset (40 rows).",

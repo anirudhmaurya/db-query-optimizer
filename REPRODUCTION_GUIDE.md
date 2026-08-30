@@ -23,7 +23,16 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-The setup script automatically initializes the virtual environment, installs dependencies, loads configuration defaults, and generates the benchmark sandbox database with 100,000+ synthetic records.
+The setup script automatically initializes the virtual environment, installs dependencies, creates `.env` from `.env.example`, and generates the benchmark sandbox database with 100,000+ synthetic records.
+
+> **Configure API Key:**
+> After running `./setup.sh`, open `.env` and set your API key:
+> ```bash
+> # Edit .env and enter your key:
+> DEEPSEEK_API_KEY=sk-your-deepseek-api-key-here
+> # Or use GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY
+> ```
+> *(For offline execution with zero API cost, you can skip adding an API key and pass `--mock` to any command).*
 
 ---
 

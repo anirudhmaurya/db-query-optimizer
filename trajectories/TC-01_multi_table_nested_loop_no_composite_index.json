@@ -3,7 +3,7 @@
   "test_case_name": "multi_table_nested_loop_no_composite_index",
   "anti_pattern": "Multi-table nested loop joins without composite indexes",
   "model": "deepseek-chat",
-  "start_time": "2026-08-30T14:05:34Z",
+  "start_time": "2026-08-30T14:11:34Z",
   "original_query": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;",
   "stages": {
     "profiler": {
@@ -62,19 +62,19 @@
           {
             "type": "FULL_TABLE_SCAN",
             "table": "order_items",
-            "detail": "The query plan shows a SCAN on order_items (oi) which means the entire table is being scanned. This is the driving table in the query, and with no index on quantity or unit_price, every row must be examined. This is particularly expensive because order_items is typically a large table with many rows per order.",
+            "detail": "The query plan shows a SCAN on order_items (oi) without using any index. This means SQLite must read every row in the order_items table to evaluate the quantity >= 3 and unit_price > 50.0 predicates. This is the most expensive operation in the query, especially if order_items is large.",
             "severity": "HIGH"
           },
           {
             "type": "TEMP_BTREE_SORT",
             "table": null,
-            "detail": "The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite is creating a temporary B-tree to sort the results by o.amount DESC. This requires additional memory and disk I/O, and the sort operation happens after all the filtering and joining, making it more expensive. The LIMIT 50 doesn't help because the sort must be performed on all matching rows before the top 50 can be returned.",
+            "detail": "The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite must sort the result set by o.amount DESC after applying all filters. This requires materializing the intermediate result set and sorting it, which adds CPU and I/O overhead. The sort is not covered by any index.",
             "severity": "MEDIUM"
           },
           {
             "type": "UNINDEXED_JOIN",
             "table": "orders",
-            "detail": "The join between order_items and orders uses the primary key of orders (SEARCH o USING INTEGER PRIMARY KEY), which is efficient. However, the join between users and orders uses the foreign key user_id, which has no index. This means for each order, SQLite must search the users table by primary key, but the initial join from users to orders requires scanning all orders for each user. The lack of an index on orders.user_id makes this join less efficient than it could be.",
+            "detail": "The join between order_items and orders uses a SEARCH on orders by primary key (rowid=?), which is efficient. However, the initial scan on order_items forces the join to be driven by order_items, and for each order_items row, it looks up the corresponding order. This is acceptable if order_items is small, but with a large order_items table, the join order is suboptimal. The real issue is that there's no index on order_items to filter by quantity and unit_price before joining.",
             "severity": "MEDIUM"
           }
         ],
@@ -84,67 +84,55 @@
           "users"
         ],
         "has_temp_btree_sort": true,
-        "optimization_strategy": "Create composite indexes to support the filtering and join conditions. Specifically: 1) Create an index on order_items(quantity, unit_price) to allow efficient filtering on the driving table. 2) Create an index on orders(user_id, status) to support the join from users and filter on status. 3) Create an index on users(region) to support the region filter. Additionally, consider creating a covering index on orders(amount) to potentially eliminate the temp B-tree sort, or restructure the query to push the ORDER BY and LIMIT into a subquery that filters first.",
+        "optimization_strategy": "Create a composite index on order_items (quantity, unit_price) to allow efficient filtering before the join. Also consider creating an index on orders (status, amount) to help with the status filter and potentially the ORDER BY. Additionally, create an index on users (region) to filter users before joining. The most impactful change is the composite index on order_items to avoid the full table scan.",
         "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 6,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN oi\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"oi\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 13,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH o USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"o\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 18,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH u USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 41,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
-        "raw_response": "```json\n{\n  \"identified_bottlenecks\": [\n    {\n      \"type\": \"FULL_TABLE_SCAN\",\n      \"table\": \"order_items\",\n      \"detail\": \"The query plan shows a SCAN on order_items (oi) which means the entire table is being scanned. This is the driving table in the query, and with no index on quantity or unit_price, every row must be examined. This is particularly expensive because order_items is typically a large table with many rows per order.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"TEMP_BTREE_SORT\",\n      \"table\": null,\n      \"detail\": \"The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite is creating a temporary B-tree to sort the results by o.amount DESC. This requires additional memory and disk I/O, and the sort operation happens after all the filtering and joining, making it more expensive. The LIMIT 50 doesn't help because the sort must be performed on all matching rows before the top 50 can be returned.\",\n      \"severity\": \"MEDIUM\"\n    },\n    {\n      \"type\": \"UNINDEXED_JOIN\",\n      \"table\": \"orders\",\n      \"detail\": \"The join between order_items and orders uses the primary key of orders (SEARCH o USING INTEGER PRIMARY KEY), which is efficient. However, the join between users and orders uses the foreign key user_id, which has no index. This means for each order, SQLite must search the users table by primary key, but the initial join from users to orders requires scanning all orders for each user. The lack of an index on orders.user_id makes this join less efficient than it could be.\",\n      \"severity\": \"MEDIUM\"\n    }\n  ],\n  \"critical_tables\": [\n    \"order_items\",\n    \"orders\",\n    \"users\"\n  ],\n  \"has_temp_btree_sort\": true,\n  \"optimization_strategy\": \"Create composite indexes to support the filtering and join conditions. Specifically: 1) Create an index on order_items(quantity, unit_price) to allow efficient filtering on the driving table. 2) Create an index on orders(user_id, status) to support the join from users and filter on status. 3) Create an index on users(region) to support the region filter. Additionally, consider creating a covering index on orders(amount) to potentially eliminate the temp B-tree sort, or restructure the query to push the ORDER BY and LIMIT into a subquery that filters first.\"\n}\n```"
+        "raw_response": "```json\n{\n  \"identified_bottlenecks\": [\n    {\n      \"type\": \"FULL_TABLE_SCAN\",\n      \"table\": \"order_items\",\n      \"detail\": \"The query plan shows a SCAN on order_items (oi) without using any index. This means SQLite must read every row in the order_items table to evaluate the quantity >= 3 and unit_price > 50.0 predicates. This is the most expensive operation in the query, especially if order_items is large.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"TEMP_BTREE_SORT\",\n      \"table\": null,\n      \"detail\": \"The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite must sort the result set by o.amount DESC after applying all filters. This requires materializing the intermediate result set and sorting it, which adds CPU and I/O overhead. The sort is not covered by any index.\",\n      \"severity\": \"MEDIUM\"\n    },\n    {\n      \"type\": \"UNINDEXED_JOIN\",\n      \"table\": \"orders\",\n      \"detail\": \"The join between order_items and orders uses a SEARCH on orders by primary key (rowid=?), which is efficient. However, the initial scan on order_items forces the join to be driven by order_items, and for each order_items row, it looks up the corresponding order. This is acceptable if order_items is small, but with a large order_items table, the join order is suboptimal. The real issue is that there's no index on order_items to filter by quantity and unit_price before joining.\",\n      \"severity\": \"MEDIUM\"\n    }\n  ],\n  \"critical_tables\": [\"order_items\", \"orders\", \"users\"],\n  \"has_temp_btree_sort\": true,\n  \"optimization_strategy\": \"Create a composite index on order_items (quantity, unit_price) to allow efficient filtering before the join. Also consider creating an index on orders (status, amount) to help with the status filter and potentially the ORDER BY. Additionally, create an index on users (region) to filter users before joining. The most impactful change is the composite index on order_items to avoid the full table scan.\"\n}\n```"
       },
-      "elapsed_sec": 4.691
+      "elapsed_sec": 4.28
     },
     "index_architect": {
       "architect_report": {
         "recommended_indexes": [
           {
             "table": "order_items",
-            "ddl": "CREATE INDEX idx_order_items_filter ON order_items (quantity, unit_price);",
-            "purpose": "This composite index directly targets the WHERE clause filters on quantity >= 3 and unit_price > 50.0. It converts the full table scan into a range scan on the index, dramatically reducing the number of rows examined."
+            "ddl": "CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);",
+            "purpose": "This composite index directly supports the WHERE clause filters on quantity >= 3 and unit_price > 50.0, allowing SQLite to quickly locate matching rows via B-Tree range scans instead of scanning the entire table. The order of columns (quantity first, then unit_price) is chosen because quantity is an equality-like range (>=) and unit_price is a secondary range filter; this index will dramatically reduce the number of rows read from order_items."
           },
           {
             "table": "orders",
-            "ddl": "CREATE INDEX idx_orders_user_status ON orders (user_id, status);",
-            "purpose": "This index supports the join from users to orders (on user_id) and filters by status = 'completed'. It avoids scanning all orders for each user and allows efficient lookup of completed orders per user."
+            "ddl": "CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);",
+            "purpose": "This index serves two purposes: (1) It filters orders by status = 'completed' efficiently, avoiding a full scan on orders. (2) It provides the amount in descending order, which can help avoid a temporary B-Tree sort for ORDER BY o.amount DESC, especially if the optimizer can use this index to retrieve rows in sorted order. Even if the sort is still needed, the index reduces the number of rows to sort by filtering status early."
           },
           {
-            "table": "order_items",
-            "ddl": "CREATE INDEX idx_order_items_order_id ON order_items (order_id);",
-            "purpose": "This index accelerates the join from orders to order_items (on order_id). While the primary key of orders is used for the reverse join, this index ensures that for each completed order, the matching order_items are found quickly without scanning the entire order_items table."
+            "table": "users",
+            "ddl": "CREATE INDEX idx_users_region ON users (region);",
+            "purpose": "This index accelerates the filter on u.region = 'North America', allowing SQLite to quickly find matching users without scanning the entire users table. While users may be smaller, this index also helps the join order by making the users table a good driving table, potentially reducing the number of rows joined to orders and order_items."
           }
         ],
-        "rationale": "The primary bottleneck is the full table scan on order_items, which is resolved by the composite index on (quantity, unit_price). The secondary bottlenecks are the unindexed join from users to orders and the join from orders to order_items. The index on orders (user_id, status) speeds up the user-orders join and filters status early. The index on order_items (order_id) ensures efficient access to order items for each order, reducing the cost of the join. These three indexes together eliminate the full scan and reduce the number of rows processed, while the ORDER BY amount DESC still requires a sort but on a much smaller result set.",
-        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"order_items\",\n    \"detail\": \"The query plan shows a SCAN on order_items (oi) which means the entire table is being scanned. This is the driving table in the query, and with no index on quantity or unit_price, every row must be examined. This is particularly expensive because order_items is typically a large table with many rows per order.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite is creating a temporary B-tree to sort the results by o.amount DESC. This requires additional memory and disk I/O, and the sort operation happens after all the filtering and joining, making it more expensive. The LIMIT 50 doesn't help because the sort must be performed on all matching rows before the top 50 can be returned.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The join between order_items and orders uses the primary key of orders (SEARCH o USING INTEGER PRIMARY KEY), which is efficient. However, the join between users and orders uses the foreign key user_id, which has no index. This means for each order, SQLite must search the users table by primary key, but the initial join from users to orders requires scanning all orders for each user. The lack of an index on orders.user_id makes this join less efficient than it could be.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
-        "raw_response": "{\n  \"recommended_indexes\": [\n    {\n      \"table\": \"order_items\",\n      \"ddl\": \"CREATE INDEX idx_order_items_filter ON order_items (quantity, unit_price);\",\n      \"purpose\": \"This composite index directly targets the WHERE clause filters on quantity >= 3 and unit_price > 50.0. It converts the full table scan into a range scan on the index, dramatically reducing the number of rows examined.\"\n    },\n    {\n      \"table\": \"orders\",\n      \"ddl\": \"CREATE INDEX idx_orders_user_status ON orders (user_id, status);\",\n      \"purpose\": \"This index supports the join from users to orders (on user_id) and filters by status = 'completed'. It avoids scanning all orders for each user and allows efficient lookup of completed orders per user.\"\n    },\n    {\n      \"table\": \"order_items\",\n      \"ddl\": \"CREATE INDEX idx_order_items_order_id ON order_items (order_id);\",\n      \"purpose\": \"This index accelerates the join from orders to order_items (on order_id). While the primary key of orders is used for the reverse join, this index ensures that for each completed order, the matching order_items are found quickly without scanning the entire order_items table.\"\n    }\n  ],\n  \"rationale\": \"The primary bottleneck is the full table scan on order_items, which is resolved by the composite index on (quantity, unit_price). The secondary bottlenecks are the unindexed join from users to orders and the join from orders to order_items. The index on orders (user_id, status) speeds up the user-orders join and filters status early. The index on order_items (order_id) ensures efficient access to order items for each order, reducing the cost of the join. These three indexes together eliminate the full scan and reduce the number of rows processed, while the ORDER BY amount DESC still requires a sort but on a much smaller result set.\"\n}",
+        "rationale": "The primary bottleneck is the full table scan on order_items, which is the largest table in the join. The composite index on order_items (quantity, unit_price) directly addresses this by enabling index range scans for the two most selective predicates. The index on orders (status, amount) helps filter orders by status and may assist with the ORDER BY, reducing the temp B-Tree sort overhead. The index on users (region) is a secondary optimization to speed up the initial filter and improve join order. Together, these indexes convert the most expensive sequential scans into efficient B-Tree lookups, and the covering nature of the order_items index (if extended to include product_id, quantity, unit_price) could further reduce I/O, but the three chosen indexes provide the highest impact with minimal overhead.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"order_items\",\n    \"detail\": \"The query plan shows a SCAN on order_items (oi) without using any index. This means SQLite must read every row in the order_items table to evaluate the quantity >= 3 and unit_price > 50.0 predicates. This is the most expensive operation in the query, especially if order_items is large.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite must sort the result set by o.amount DESC after applying all filters. This requires materializing the intermediate result set and sorting it, which adds CPU and I/O overhead. The sort is not covered by any index.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The join between order_items and orders uses a SEARCH on orders by primary key (rowid=?), which is efficient. However, the initial scan on order_items forces the join to be driven by order_items, and for each order_items row, it looks up the corresponding order. This is acceptable if order_items is small, but with a large order_items table, the join order is suboptimal. The real issue is that there's no index on order_items to filter by quantity and unit_price before joining.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "raw_response": "{\n  \"recommended_indexes\": [\n    {\n      \"table\": \"order_items\",\n      \"ddl\": \"CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);\",\n      \"purpose\": \"This composite index directly supports the WHERE clause filters on quantity >= 3 and unit_price > 50.0, allowing SQLite to quickly locate matching rows via B-Tree range scans instead of scanning the entire table. The order of columns (quantity first, then unit_price) is chosen because quantity is an equality-like range (>=) and unit_price is a secondary range filter; this index will dramatically reduce the number of rows read from order_items.\"\n    },\n    {\n      \"table\": \"orders\",\n      \"ddl\": \"CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);\",\n      \"purpose\": \"This index serves two purposes: (1) It filters orders by status = 'completed' efficiently, avoiding a full scan on orders. (2) It provides the amount in descending order, which can help avoid a temporary B-Tree sort for ORDER BY o.amount DESC, especially if the optimizer can use this index to retrieve rows in sorted order. Even if the sort is still needed, the index reduces the number of rows to sort by filtering status early.\"\n    },\n    {\n      \"table\": \"users\",\n      \"ddl\": \"CREATE INDEX idx_users_region ON users (region);\",\n      \"purpose\": \"This index accelerates the filter on u.region = 'North America', allowing SQLite to quickly find matching users without scanning the entire users table. While users may be smaller, this index also helps the join order by making the users table a good driving table, potentially reducing the number of rows joined to orders and order_items.\"\n    }\n  ],\n  \"rationale\": \"The primary bottleneck is the full table scan on order_items, which is the largest table in the join. The composite index on order_items (quantity, unit_price) directly addresses this by enabling index range scans for the two most selective predicates. The index on orders (status, amount) helps filter orders by status and may assist with the ORDER BY, reducing the temp B-Tree sort overhead. The index on users (region) is a secondary optimization to speed up the initial filter and improve join order. Together, these indexes convert the most expensive sequential scans into efficient B-Tree lookups, and the covering nature of the order_items index (if extended to include product_id, quantity, unit_price) could further reduce I/O, but the three chosen indexes provide the highest impact with minimal overhead.\"\n}",
         "applied_indexes": [
-          "CREATE INDEX idx_order_items_filter ON order_items (quantity, unit_price);",
-          "CREATE INDEX idx_orders_user_status ON orders (user_id, status);",
-          "CREATE INDEX idx_order_items_order_id ON order_items (order_id);"
+          "CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);",
+          "CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);",
+          "CREATE INDEX idx_users_region ON users (region);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
-            "id": 7,
+            "id": 8,
             "parent_id": 0,
-            "detail": "SEARCH oi USING INDEX idx_order_items_filter (quantity>?)",
-            "operation_type": "SEARCH",
-            "table": "oi",
-            "index": "idx_order_items_filter",
-            "is_scan": false,
-            "is_search": true,
-            "uses_temp_btree": false,
-            "uses_covering_index": false
-          },
-          {
-            "id": 14,
-            "parent_id": 0,
-            "detail": "SEARCH o USING INTEGER PRIMARY KEY (rowid=?)",
+            "detail": "SEARCH o USING INDEX idx_orders_status_amount (status=?)",
             "operation_type": "SEARCH",
             "table": "o",
-            "index": null,
+            "index": "idx_orders_status_amount",
             "is_scan": false,
             "is_search": true,
             "uses_temp_btree": false,
             "uses_covering_index": false
           },
           {
-            "id": 19,
+            "id": 13,
             "parent_id": 0,
             "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
             "operation_type": "SEARCH",
@@ -156,26 +144,26 @@
             "uses_covering_index": false
           },
           {
-            "id": 42,
+            "id": 18,
             "parent_id": 0,
-            "detail": "USE TEMP B-TREE FOR ORDER BY",
-            "operation_type": "TEMP_BTREE",
-            "table": null,
-            "index": null,
+            "detail": "SEARCH oi USING INDEX idx_order_items_quantity_price (quantity>?)",
+            "operation_type": "SEARCH",
+            "table": "oi",
+            "index": "idx_order_items_quantity_price",
             "is_scan": false,
-            "is_search": false,
-            "uses_temp_btree": true,
+            "is_search": true,
+            "uses_temp_btree": false,
             "uses_covering_index": false
           }
         ],
         "scans_remaining": []
       },
       "applied_indexes": [
-        "CREATE INDEX idx_order_items_filter ON order_items (quantity, unit_price);",
-        "CREATE INDEX idx_orders_user_status ON orders (user_id, status);",
-        "CREATE INDEX idx_order_items_order_id ON order_items (order_id);"
+        "CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);",
+        "CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);",
+        "CREATE INDEX idx_users_region ON users (region);"
       ],
-      "elapsed_sec": 4.385
+      "elapsed_sec": 5.504
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -187,13 +175,12 @@
           "developer_report": {
             "rewritten_sql": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;",
             "applied_techniques": [
-              "No query rewrite needed; original query is already optimal given the indexes.",
-              "Leveraged existing indexes to avoid full table scans and temp B-tree sorts.",
-              "Ensured SARGable predicates by using direct column comparisons (no functions on columns)."
+              "Index optimization",
+              "Query plan analysis"
             ],
-            "rationale": "The original query is already well-structured with no correlated subqueries or non-SARGable predicates. The bottleneck report indicates that the main issues are missing indexes, which have been addressed by the applied indexes. With the indexes in place, the query plan will use index seeks on order_items (quantity, unit_price) and orders (user_id, status), and the join to orders will use the primary key index. The ORDER BY o.amount DESC can be satisfied by an index on orders (amount) if needed, but with LIMIT 50, SQLite may still use a temp B-tree; however, the filtering reduces the result set significantly, making the sort less expensive. No further SQL transformations are required.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"order_items\",\n    \"detail\": \"The query plan shows a SCAN on order_items (oi) which means the entire table is being scanned. This is the driving table in the query, and with no index on quantity or unit_price, every row must be examined. This is particularly expensive because order_items is typically a large table with many rows per order.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite is creating a temporary B-tree to sort the results by o.amount DESC. This requires additional memory and disk I/O, and the sort operation happens after all the filtering and joining, making it more expensive. The LIMIT 50 doesn't help because the sort must be performed on all matching rows before the top 50 can be returned.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The join between order_items and orders uses the primary key of orders (SEARCH o USING INTEGER PRIMARY KEY), which is efficient. However, the join between users and orders uses the foreign key user_id, which has no index. This means for each order, SQLite must search the users table by primary key, but the initial join from users to orders requires scanning all orders for each user. The lack of an index on orders.user_id makes this join less efficient than it could be.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_order_items_filter ON order_items (quantity, unit_price);\",\n  \"CREATE INDEX idx_orders_user_status ON orders (user_id, status);\",\n  \"CREATE INDEX idx_order_items_order_id ON order_items (order_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
-            "raw_response": "{\n  \"rewritten_sql\": \"SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\",\n  \"applied_techniques\": [\n    \"No query rewrite needed; original query is already optimal given the indexes.\",\n    \"Leveraged existing indexes to avoid full table scans and temp B-tree sorts.\",\n    \"Ensured SARGable predicates by using direct column comparisons (no functions on columns).\"\n  ],\n  \"rationale\": \"The original query is already well-structured with no correlated subqueries or non-SARGable predicates. The bottleneck report indicates that the main issues are missing indexes, which have been addressed by the applied indexes. With the indexes in place, the query plan will use index seeks on order_items (quantity, unit_price) and orders (user_id, status), and the join to orders will use the primary key index. The ORDER BY o.amount DESC can be satisfied by an index on orders (amount) if needed, but with LIMIT 50, SQLite may still use a temp B-tree; however, the filtering reduces the result set significantly, making the sort less expensive. No further SQL transformations are required.\"\n}"
+            "rationale": "The original query is already well-structured with proper joins and filters. The bottleneck report indicates that the main issue is the lack of indexes on order_items for the quantity and unit_price filters, and on orders for status and amount. The applied indexes (idx_order_items_quantity_price, idx_orders_status_amount, idx_users_region) directly address these issues. The query itself does not contain correlated subqueries, non-SARGable date functions, or case transforms that need rewriting. Therefore, the SQL remains unchanged, but the indexes will significantly improve performance by allowing SQLite to use index seeks instead of full table scans and to avoid sorting by using the index on orders (status, amount DESC).",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"order_items\",\n    \"detail\": \"The query plan shows a SCAN on order_items (oi) without using any index. This means SQLite must read every row in the order_items table to evaluate the quantity >= 3 and unit_price > 50.0 predicates. This is the most expensive operation in the query, especially if order_items is large.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite must sort the result set by o.amount DESC after applying all filters. This requires materializing the intermediate result set and sorting it, which adds CPU and I/O overhead. The sort is not covered by any index.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The join between order_items and orders uses a SEARCH on orders by primary key (rowid=?), which is efficient. However, the initial scan on order_items forces the join to be driven by order_items, and for each order_items row, it looks up the corresponding order. This is acceptable if order_items is small, but with a large order_items table, the join order is suboptimal. The real issue is that there's no index on order_items to filter by quantity and unit_price before joining.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);\",\n  \"CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);\",\n  \"CREATE INDEX idx_users_region ON users (region);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+            "raw_response": "{\n  \"rewritten_sql\": \"SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\",\n  \"applied_techniques\": [\"Index optimization\", \"Query plan analysis\"],\n  \"rationale\": \"The original query is already well-structured with proper joins and filters. The bottleneck report indicates that the main issue is the lack of indexes on order_items for the quantity and unit_price filters, and on orders for status and amount. The applied indexes (idx_order_items_quantity_price, idx_orders_status_amount, idx_users_region) directly address these issues. The query itself does not contain correlated subqueries, non-SARGable date functions, or case transforms that need rewriting. Therefore, the SQL remains unchanged, but the indexes will significantly improve performance by allowing SQLite to use index seeks instead of full table scans and to avoid sorting by using the index on orders (status, amount DESC).\"\n}"
           },
           "verification_report": {
             "status": "PASSED",
@@ -201,39 +188,27 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 38.29,
-            "optimized_time_ms": 21.397,
-            "speedup_ratio": 1.79,
+            "original_time_ms": 356.513,
+            "optimized_time_ms": 312.92,
+            "speedup_ratio": 1.14,
             "original_row_count": 50,
             "optimized_row_count": 50,
             "verification_message": "Result sets match perfectly as multiset (50 rows).",
             "post_explain_plan": [
               {
-                "id": 7,
+                "id": 8,
                 "parent_id": 0,
-                "detail": "SEARCH oi USING INDEX idx_order_items_filter (quantity>?)",
-                "operation_type": "SEARCH",
-                "table": "oi",
-                "index": "idx_order_items_filter",
-                "is_scan": false,
-                "is_search": true,
-                "uses_temp_btree": false,
-                "uses_covering_index": false
-              },
-              {
-                "id": 14,
-                "parent_id": 0,
-                "detail": "SEARCH o USING INTEGER PRIMARY KEY (rowid=?)",
+                "detail": "SEARCH o USING INDEX idx_orders_status_amount (status=?)",
                 "operation_type": "SEARCH",
                 "table": "o",
-                "index": null,
+                "index": "idx_orders_status_amount",
                 "is_scan": false,
                 "is_search": true,
                 "uses_temp_btree": false,
                 "uses_covering_index": false
               },
               {
-                "id": 19,
+                "id": 13,
                 "parent_id": 0,
                 "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
                 "operation_type": "SEARCH",
@@ -245,20 +220,20 @@
                 "uses_covering_index": false
               },
               {
-                "id": 42,
+                "id": 18,
                 "parent_id": 0,
-                "detail": "USE TEMP B-TREE FOR ORDER BY",
-                "operation_type": "TEMP_BTREE",
-                "table": null,
-                "index": null,
+                "detail": "SEARCH oi USING INDEX idx_order_items_quantity_price (quantity>?)",
+                "operation_type": "SEARCH",
+                "table": "oi",
+                "index": "idx_order_items_quantity_price",
                 "is_scan": false,
-                "is_search": false,
-                "uses_temp_btree": true,
+                "is_search": true,
+                "uses_temp_btree": false,
                 "uses_covering_index": false
               }
             ]
           },
-          "elapsed_sec": 3.625
+          "elapsed_sec": 3.871
         }
       ]
     }
@@ -330,19 +305,19 @@
           {
             "type": "FULL_TABLE_SCAN",
             "table": "order_items",
-            "detail": "The query plan shows a SCAN on order_items (oi) which means the entire table is being scanned. This is the driving table in the query, and with no index on quantity or unit_price, every row must be examined. This is particularly expensive because order_items is typically a large table with many rows per order.",
+            "detail": "The query plan shows a SCAN on order_items (oi) without using any index. This means SQLite must read every row in the order_items table to evaluate the quantity >= 3 and unit_price > 50.0 predicates. This is the most expensive operation in the query, especially if order_items is large.",
             "severity": "HIGH"
           },
           {
             "type": "TEMP_BTREE_SORT",
             "table": null,
-            "detail": "The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite is creating a temporary B-tree to sort the results by o.amount DESC. This requires additional memory and disk I/O, and the sort operation happens after all the filtering and joining, making it more expensive. The LIMIT 50 doesn't help because the sort must be performed on all matching rows before the top 50 can be returned.",
+            "detail": "The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite must sort the result set by o.amount DESC after applying all filters. This requires materializing the intermediate result set and sorting it, which adds CPU and I/O overhead. The sort is not covered by any index.",
             "severity": "MEDIUM"
           },
           {
             "type": "UNINDEXED_JOIN",
             "table": "orders",
-            "detail": "The join between order_items and orders uses the primary key of orders (SEARCH o USING INTEGER PRIMARY KEY), which is efficient. However, the join between users and orders uses the foreign key user_id, which has no index. This means for each order, SQLite must search the users table by primary key, but the initial join from users to orders requires scanning all orders for each user. The lack of an index on orders.user_id makes this join less efficient than it could be.",
+            "detail": "The join between order_items and orders uses a SEARCH on orders by primary key (rowid=?), which is efficient. However, the initial scan on order_items forces the join to be driven by order_items, and for each order_items row, it looks up the corresponding order. This is acceptable if order_items is small, but with a large order_items table, the join order is suboptimal. The real issue is that there's no index on order_items to filter by quantity and unit_price before joining.",
             "severity": "MEDIUM"
           }
         ],
@@ -352,57 +327,45 @@
           "users"
         ],
         "has_temp_btree_sort": true,
-        "optimization_strategy": "Create composite indexes to support the filtering and join conditions. Specifically: 1) Create an index on order_items(quantity, unit_price) to allow efficient filtering on the driving table. 2) Create an index on orders(user_id, status) to support the join from users and filter on status. 3) Create an index on users(region) to support the region filter. Additionally, consider creating a covering index on orders(amount) to potentially eliminate the temp B-tree sort, or restructure the query to push the ORDER BY and LIMIT into a subquery that filters first."
+        "optimization_strategy": "Create a composite index on order_items (quantity, unit_price) to allow efficient filtering before the join. Also consider creating an index on orders (status, amount) to help with the status filter and potentially the ORDER BY. Additionally, create an index on users (region) to filter users before joining. The most impactful change is the composite index on order_items to avoid the full table scan."
       }
     },
     {
       "test_case_id": "TC-01",
       "test_case_name": "multi_table_nested_loop_no_composite_index",
       "agent_id": "IndexArchitect",
-      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"order_items\",\n    \"detail\": \"The query plan shows a SCAN on order_items (oi) which means the entire table is being scanned. This is the driving table in the query, and with no index on quantity or unit_price, every row must be examined. This is particularly expensive because order_items is typically a large table with many rows per order.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite is creating a temporary B-tree to sort the results by o.amount DESC. This requires additional memory and disk I/O, and the sort operation happens after all the filtering and joining, making it more expensive. The LIMIT 50 doesn't help because the sort must be performed on all matching rows before the top 50 can be returned.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The join between order_items and orders uses the primary key of orders (SEARCH o USING INTEGER PRIMARY KEY), which is efficient. However, the join between users and orders uses the foreign key user_id, which has no index. This means for each order, SQLite must search the users table by primary key, but the initial join from users to orders requires scanning all orders for each user. The lack of an index on orders.user_id makes this join less efficient than it could be.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"order_items\",\n    \"detail\": \"The query plan shows a SCAN on order_items (oi) without using any index. This means SQLite must read every row in the order_items table to evaluate the quantity >= 3 and unit_price > 50.0 predicates. This is the most expensive operation in the query, especially if order_items is large.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite must sort the result set by o.amount DESC after applying all filters. This requires materializing the intermediate result set and sorting it, which adds CPU and I/O overhead. The sort is not covered by any index.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The join between order_items and orders uses a SEARCH on orders by primary key (rowid=?), which is efficient. However, the initial scan on order_items forces the join to be driven by order_items, and for each order_items row, it looks up the corresponding order. This is acceptable if order_items is small, but with a large order_items table, the join order is suboptimal. The real issue is that there's no index on order_items to filter by quantity and unit_price before joining.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
       "tool_called": "DatabaseSandbox.apply_index",
       "tool_arguments": {
         "db_path": "sandbox_TC-01.db",
         "recommended_indexes": [
-          "CREATE INDEX idx_order_items_filter ON order_items (quantity, unit_price);",
-          "CREATE INDEX idx_orders_user_status ON orders (user_id, status);",
-          "CREATE INDEX idx_order_items_order_id ON order_items (order_id);"
+          "CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);",
+          "CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);",
+          "CREATE INDEX idx_users_region ON users (region);"
         ]
       },
       "tool_output": {
         "applied_indexes": [
-          "CREATE INDEX idx_order_items_filter ON order_items (quantity, unit_price);",
-          "CREATE INDEX idx_orders_user_status ON orders (user_id, status);",
-          "CREATE INDEX idx_order_items_order_id ON order_items (order_id);"
+          "CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);",
+          "CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);",
+          "CREATE INDEX idx_users_region ON users (region);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
-            "id": 7,
+            "id": 8,
             "parent_id": 0,
-            "detail": "SEARCH oi USING INDEX idx_order_items_filter (quantity>?)",
-            "operation_type": "SEARCH",
-            "table": "oi",
-            "index": "idx_order_items_filter",
-            "is_scan": false,
-            "is_search": true,
-            "uses_temp_btree": false,
-            "uses_covering_index": false
-          },
-          {
-            "id": 14,
-            "parent_id": 0,
-            "detail": "SEARCH o USING INTEGER PRIMARY KEY (rowid=?)",
+            "detail": "SEARCH o USING INDEX idx_orders_status_amount (status=?)",
             "operation_type": "SEARCH",
             "table": "o",
-            "index": null,
+            "index": "idx_orders_status_amount",
             "is_scan": false,
             "is_search": true,
             "uses_temp_btree": false,
             "uses_covering_index": false
           },
           {
-            "id": 19,
+            "id": 13,
             "parent_id": 0,
             "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
             "operation_type": "SEARCH",
@@ -414,15 +377,15 @@
             "uses_covering_index": false
           },
           {
-            "id": 42,
+            "id": 18,
             "parent_id": 0,
-            "detail": "USE TEMP B-TREE FOR ORDER BY",
-            "operation_type": "TEMP_BTREE",
-            "table": null,
-            "index": null,
+            "detail": "SEARCH oi USING INDEX idx_order_items_quantity_price (quantity>?)",
+            "operation_type": "SEARCH",
+            "table": "oi",
+            "index": "idx_order_items_quantity_price",
             "is_scan": false,
-            "is_search": false,
-            "uses_temp_btree": true,
+            "is_search": true,
+            "uses_temp_btree": false,
             "uses_covering_index": false
           }
         ]
@@ -432,28 +395,28 @@
         "recommended_indexes": [
           {
             "table": "order_items",
-            "ddl": "CREATE INDEX idx_order_items_filter ON order_items (quantity, unit_price);",
-            "purpose": "This composite index directly targets the WHERE clause filters on quantity >= 3 and unit_price > 50.0. It converts the full table scan into a range scan on the index, dramatically reducing the number of rows examined."
+            "ddl": "CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);",
+            "purpose": "This composite index directly supports the WHERE clause filters on quantity >= 3 and unit_price > 50.0, allowing SQLite to quickly locate matching rows via B-Tree range scans instead of scanning the entire table. The order of columns (quantity first, then unit_price) is chosen because quantity is an equality-like range (>=) and unit_price is a secondary range filter; this index will dramatically reduce the number of rows read from order_items."
           },
           {
             "table": "orders",
-            "ddl": "CREATE INDEX idx_orders_user_status ON orders (user_id, status);",
-            "purpose": "This index supports the join from users to orders (on user_id) and filters by status = 'completed'. It avoids scanning all orders for each user and allows efficient lookup of completed orders per user."
+            "ddl": "CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);",
+            "purpose": "This index serves two purposes: (1) It filters orders by status = 'completed' efficiently, avoiding a full scan on orders. (2) It provides the amount in descending order, which can help avoid a temporary B-Tree sort for ORDER BY o.amount DESC, especially if the optimizer can use this index to retrieve rows in sorted order. Even if the sort is still needed, the index reduces the number of rows to sort by filtering status early."
           },
           {
-            "table": "order_items",
-            "ddl": "CREATE INDEX idx_order_items_order_id ON order_items (order_id);",
-            "purpose": "This index accelerates the join from orders to order_items (on order_id). While the primary key of orders is used for the reverse join, this index ensures that for each completed order, the matching order_items are found quickly without scanning the entire order_items table."
+            "table": "users",
+            "ddl": "CREATE INDEX idx_users_region ON users (region);",
+            "purpose": "This index accelerates the filter on u.region = 'North America', allowing SQLite to quickly find matching users without scanning the entire users table. While users may be smaller, this index also helps the join order by making the users table a good driving table, potentially reducing the number of rows joined to orders and order_items."
           }
         ],
-        "rationale": "The primary bottleneck is the full table scan on order_items, which is resolved by the composite index on (quantity, unit_price). The secondary bottlenecks are the unindexed join from users to orders and the join from orders to order_items. The index on orders (user_id, status) speeds up the user-orders join and filters status early. The index on order_items (order_id) ensures efficient access to order items for each order, reducing the cost of the join. These three indexes together eliminate the full scan and reduce the number of rows processed, while the ORDER BY amount DESC still requires a sort but on a much smaller result set."
+        "rationale": "The primary bottleneck is the full table scan on order_items, which is the largest table in the join. The composite index on order_items (quantity, unit_price) directly addresses this by enabling index range scans for the two most selective predicates. The index on orders (status, amount) helps filter orders by status and may assist with the ORDER BY, reducing the temp B-Tree sort overhead. The index on users (region) is a secondary optimization to speed up the initial filter and improve join order. Together, these indexes convert the most expensive sequential scans into efficient B-Tree lookups, and the covering nature of the order_items index (if extended to include product_id, quantity, unit_price) could further reduce I/O, but the three chosen indexes provide the highest impact with minimal overhead."
       }
     },
     {
       "test_case_id": "TC-01",
       "test_case_name": "multi_table_nested_loop_no_composite_index",
       "agent_id": "Developer",
-      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"order_items\",\n    \"detail\": \"The query plan shows a SCAN on order_items (oi) which means the entire table is being scanned. This is the driving table in the query, and with no index on quantity or unit_price, every row must be examined. This is particularly expensive because order_items is typically a large table with many rows per order.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite is creating a temporary B-tree to sort the results by o.amount DESC. This requires additional memory and disk I/O, and the sort operation happens after all the filtering and joining, making it more expensive. The LIMIT 50 doesn't help because the sort must be performed on all matching rows before the top 50 can be returned.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The join between order_items and orders uses the primary key of orders (SEARCH o USING INTEGER PRIMARY KEY), which is efficient. However, the join between users and orders uses the foreign key user_id, which has no index. This means for each order, SQLite must search the users table by primary key, but the initial join from users to orders requires scanning all orders for each user. The lack of an index on orders.user_id makes this join less efficient than it could be.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_order_items_filter ON order_items (quantity, unit_price);\",\n  \"CREATE INDEX idx_orders_user_status ON orders (user_id, status);\",\n  \"CREATE INDEX idx_order_items_order_id ON order_items (order_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"order_items\",\n    \"detail\": \"The query plan shows a SCAN on order_items (oi) without using any index. This means SQLite must read every row in the order_items table to evaluate the quantity >= 3 and unit_price > 50.0 predicates. This is the most expensive operation in the query, especially if order_items is large.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query plan shows 'USE TEMP B-TREE FOR ORDER BY' which means SQLite must sort the result set by o.amount DESC after applying all filters. This requires materializing the intermediate result set and sorting it, which adds CPU and I/O overhead. The sort is not covered by any index.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The join between order_items and orders uses a SEARCH on orders by primary key (rowid=?), which is efficient. However, the initial scan on order_items forces the join to be driven by order_items, and for each order_items row, it looks up the corresponding order. This is acceptable if order_items is small, but with a large order_items table, the join order is suboptimal. The real issue is that there's no index on order_items to filter by quantity and unit_price before joining.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_order_items_quantity_price ON order_items (quantity, unit_price);\",\n  \"CREATE INDEX idx_orders_status_amount ON orders (status, amount DESC);\",\n  \"CREATE INDEX idx_users_region ON users (region);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
       "tool_called": "DatabaseSandbox.verify",
       "tool_arguments": {
         "db_path": "sandbox_TC-01.db",
@@ -465,9 +428,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
-        "original_time_ms": 38.29,
-        "optimized_time_ms": 21.397,
-        "speedup_ratio": 1.79,
+        "original_time_ms": 356.513,
+        "optimized_time_ms": 312.92,
+        "speedup_ratio": 1.14,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "error_details": null,
@@ -477,11 +440,10 @@
       "llm_output": {
         "rewritten_sql": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;",
         "applied_techniques": [
-          "No query rewrite needed; original query is already optimal given the indexes.",
-          "Leveraged existing indexes to avoid full table scans and temp B-tree sorts.",
-          "Ensured SARGable predicates by using direct column comparisons (no functions on columns)."
+          "Index optimization",
+          "Query plan analysis"
         ],
-        "rationale": "The original query is already well-structured with no correlated subqueries or non-SARGable predicates. The bottleneck report indicates that the main issues are missing indexes, which have been addressed by the applied indexes. With the indexes in place, the query plan will use index seeks on order_items (quantity, unit_price) and orders (user_id, status), and the join to orders will use the primary key index. The ORDER BY o.amount DESC can be satisfied by an index on orders (amount) if needed, but with LIMIT 50, SQLite may still use a temp B-tree; however, the filtering reduces the result set significantly, making the sort less expensive. No further SQL transformations are required."
+        "rationale": "The original query is already well-structured with proper joins and filters. The bottleneck report indicates that the main issue is the lack of indexes on order_items for the quantity and unit_price filters, and on orders for status and amount. The applied indexes (idx_order_items_quantity_price, idx_orders_status_amount, idx_users_region) directly address these issues. The query itself does not contain correlated subqueries, non-SARGable date functions, or case transforms that need rewriting. Therefore, the SQL remains unchanged, but the indexes will significantly improve performance by allowing SQLite to use index seeks instead of full table scans and to avoid sorting by using the index on orders (status, amount DESC)."
       }
     }
   ]

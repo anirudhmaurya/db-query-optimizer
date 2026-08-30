@@ -36,12 +36,20 @@ Follow these step-by-step instructions starting from a clean environment.
 ### Quickstart (Automated Setup)
 Run the automated environment setup script or use `make`:
 ```bash
-# Automated setup (creates venv, installs requirements, inits database)
+# Automated setup (creates venv, installs requirements, creates .env, inits database)
 chmod +x setup.sh && ./setup.sh
 
 # Or using Makefile
 make setup
 ```
+
+After setup, configure your API key in `.env`:
+```bash
+# DeepSeek API Key (Get from: https://platform.deepseek.com/api_keys)
+DEEPSEEK_API_KEY=sk-your-deepseek-api-key-here
+# Or use GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY
+```
+*(For offline evaluation with zero API cost, you can skip setting an API key and append `--mock` to any command).*
 
 ### Manual Setup (Step-by-Step)
 ```bash

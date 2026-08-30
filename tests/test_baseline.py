@@ -40,14 +40,15 @@ def test_clean_sql_response_multi_statement():
 
 
 def test_zero_shot_baseline_prompt_format():
-    """Test that ZeroShotBaseline issues the exact ungrounded DBA prompt."""
+    """Test that ZeroShotBaseline issues the exact ungrounded, concise prompt."""
     client = MockTestEchoClient("SELECT * FROM users;")
     optimizer = ZeroShotBaseline(client=client)
 
     result = optimizer.optimize("SELECT * FROM users;", "CREATE TABLE users (id INT);")
-    assert "You are a DBA. Make this SQL query faster:" in result["prompt"]
-    assert "Here is the schema:" in result["prompt"]
-    assert "Return only the optimized SQL." in result["prompt"]
+    assert "You are an SQL assistant. Rewrite the following SQL query to make it run faster on SQLite:" in result["prompt"]
+    assert "SQL: SELECT * FROM users;" in result["prompt"]
+    assert "Schema: CREATE TABLE users (id INT);" in result["prompt"]
+    assert "Return only the rewritten SQL query without markdown or explanations." in result["prompt"]
     assert result["optimized_sql"] == "SELECT * FROM users;"
 
 

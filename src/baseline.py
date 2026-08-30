@@ -420,14 +420,16 @@ class MockProvider(LLMProvider):
             )
         else:
             # Fallback: extract the query from prompt and return it directly
-            query_match = re.search(r"Make this SQL query faster:\s*(.*?)\.\s*Here is the schema:", prompt, re.DOTALL)
+            query_match = re.search(r"SQL:\s*(.*?)\n\s*Schema:", prompt, re.DOTALL)
+            if not query_match:
+                query_match = re.search(r"Make this SQL query faster:\s*(.*?)\.\s*Here is the schema:", prompt, re.DOTALL)
             if query_match:
-                return f"```sql\n{query_match.group(1).strip()}\n```"
-            return "```sql\nSELECT 1;\n```"
+                return query_match.group(1).strip()
+            return "SELECT 1;"
 
 
 class ZeroShotBaseline:
-    """Zero-shot LLM optimizer that issues a single ungrounded DBA optimization prompt."""
+    """Zero-shot LLM optimizer that issues a single ungrounded, unguided optimization prompt."""
 
     def __init__(
         self,
@@ -487,7 +489,7 @@ class ZeroShotBaseline:
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
     def optimize(self, query: str, schema: str) -> Dict[str, Any]:
-        """Send a single zero-shot DBA prompt to the LLM to rewrite the query.
+        """Send a single zero-shot prompt to the LLM to rewrite the query.
 
         This baseline intentionally does NOT run EXPLAIN, check indexes, or verify data accuracy.
 
@@ -499,8 +501,10 @@ class ZeroShotBaseline:
             Dictionary containing original_query, optimized_sql, raw_response, and model.
         """
         prompt = (
-            f"You are a DBA. Make this SQL query faster: {query}. "
-            f"Here is the schema: {schema}. Return only the optimized SQL."
+            "You are an SQL assistant. Rewrite the following SQL query to make it run faster on SQLite:\n\n"
+            f"SQL: {query}\n"
+            f"Schema: {schema}\n\n"
+            "Return only the rewritten SQL query without markdown or explanations."
         )
 
         logger.debug("Dispatching zero-shot DBA prompt for query: %.60s...", query)

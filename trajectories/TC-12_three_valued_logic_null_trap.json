@@ -3,7 +3,7 @@
   "test_case_name": "three_valued_logic_null_trap",
   "anti_pattern": "The Three-Valued Logic Trap: NULL foreign keys breaking NOT IN anti-joins",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:03:15Z",
+  "start_time": "2026-08-30T14:04:42Z",
   "original_query": "SELECT u.id, u.name FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id);",
   "stages": {
     "profiler": {
@@ -130,7 +130,7 @@
       "applied_indexes": [
         "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
       ],
-      "elapsed_sec": 0.008
+      "elapsed_sec": 0.007
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -154,9 +154,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 2.437,
-            "optimized_time_ms": 2.441,
-            "speedup_ratio": 1.0,
+            "original_time_ms": 2.341,
+            "optimized_time_ms": 2.275,
+            "speedup_ratio": 1.03,
             "original_row_count": 1975,
             "optimized_row_count": 1975,
             "verification_message": "Result sets match perfectly as multiset (1975 rows).",
@@ -361,9 +361,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (1975 rows).",
-        "original_time_ms": 2.437,
-        "optimized_time_ms": 2.441,
-        "speedup_ratio": 1.0,
+        "original_time_ms": 2.341,
+        "optimized_time_ms": 2.275,
+        "speedup_ratio": 1.03,
         "original_row_count": 1975,
         "optimized_row_count": 1975,
         "error_details": null,

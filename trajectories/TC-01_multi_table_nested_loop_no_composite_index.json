@@ -3,7 +3,7 @@
   "test_case_name": "multi_table_nested_loop_no_composite_index",
   "anti_pattern": "Multi-table nested loop joins without composite indexes",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:03:14Z",
+  "start_time": "2026-08-30T14:04:41Z",
   "original_query": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;",
   "stages": {
     "profiler": {
@@ -183,9 +183,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 3.584,
-            "optimized_time_ms": 3.346,
-            "speedup_ratio": 1.07,
+            "original_time_ms": 3.606,
+            "optimized_time_ms": 3.848,
+            "speedup_ratio": 0.94,
             "original_row_count": 50,
             "optimized_row_count": 50,
             "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -240,7 +240,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.007
+          "elapsed_sec": 0.008
         }
       ]
     }
@@ -432,9 +432,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
-        "original_time_ms": 3.584,
-        "optimized_time_ms": 3.346,
-        "speedup_ratio": 1.07,
+        "original_time_ms": 3.606,
+        "optimized_time_ms": 3.848,
+        "speedup_ratio": 0.94,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "error_details": null,

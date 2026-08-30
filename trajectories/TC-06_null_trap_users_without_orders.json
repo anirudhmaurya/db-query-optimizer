@@ -3,7 +3,7 @@
   "test_case_name": "null_trap_users_without_orders",
   "anti_pattern": "The NULL Trap: Unindexed LEFT JOIN filtering for NULL right-table keys",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:03:15Z",
+  "start_time": "2026-08-30T14:04:41Z",
   "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;",
   "stages": {
     "profiler": {
@@ -111,7 +111,7 @@
       "applied_indexes": [
         "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
       ],
-      "elapsed_sec": 0.008
+      "elapsed_sec": 0.007
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -135,8 +135,8 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 0.464,
-            "optimized_time_ms": 0.37,
+            "original_time_ms": 0.375,
+            "optimized_time_ms": 0.299,
             "speedup_ratio": 1.25,
             "original_row_count": 50,
             "optimized_row_count": 50,
@@ -323,8 +323,8 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
-        "original_time_ms": 0.464,
-        "optimized_time_ms": 0.37,
+        "original_time_ms": 0.375,
+        "optimized_time_ms": 0.299,
         "speedup_ratio": 1.25,
         "original_row_count": 50,
         "optimized_row_count": 50,

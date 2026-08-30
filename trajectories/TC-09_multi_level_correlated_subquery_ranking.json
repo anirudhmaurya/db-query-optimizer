@@ -3,7 +3,7 @@
   "test_case_name": "multi_level_correlated_subquery_ranking",
   "anti_pattern": "Correlated subquery ranking simulation instead of DENSE_RANK()",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:03:15Z",
+  "start_time": "2026-08-30T14:04:41Z",
   "original_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
   "stages": {
     "profiler": {
@@ -91,8 +91,8 @@
           }
         ],
         "critical_tables": [
-          "e",
-          "e2"
+          "e2",
+          "e"
         ],
         "has_temp_btree_sort": true,
         "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
@@ -208,9 +208,9 @@
             "error_stage": "RESULT_MISMATCH",
             "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
             "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.",
-            "original_time_ms": 14.568,
-            "optimized_time_ms": 3.839,
-            "speedup_ratio": 3.79,
+            "original_time_ms": 14.628,
+            "optimized_time_ms": 3.919,
+            "speedup_ratio": 3.73,
             "original_row_count": 60,
             "optimized_row_count": 80,
             "candidate_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
@@ -320,9 +320,9 @@
             "error_stage": "RESULT_MISMATCH",
             "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
             "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.",
-            "original_time_ms": 14.636,
-            "optimized_time_ms": 3.836,
-            "speedup_ratio": 3.82,
+            "original_time_ms": 14.746,
+            "optimized_time_ms": 3.896,
+            "speedup_ratio": 3.78,
             "original_row_count": 60,
             "optimized_row_count": 80,
             "candidate_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
@@ -432,9 +432,9 @@
             "error_stage": "RESULT_MISMATCH",
             "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
             "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.",
-            "original_time_ms": 14.752,
-            "optimized_time_ms": 3.812,
-            "speedup_ratio": 3.87,
+            "original_time_ms": 14.501,
+            "optimized_time_ms": 3.771,
+            "speedup_ratio": 3.85,
             "original_row_count": 60,
             "optimized_row_count": 80,
             "candidate_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
@@ -525,7 +525,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.019
+          "elapsed_sec": 0.018
         }
       ]
     }
@@ -626,8 +626,8 @@
           }
         ],
         "critical_tables": [
-          "e",
-          "e2"
+          "e2",
+          "e"
         ],
         "has_temp_btree_sort": true,
         "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions."
@@ -741,9 +741,9 @@
         "status": "FAILED",
         "is_valid": null,
         "verification_message": null,
-        "original_time_ms": 14.568,
-        "optimized_time_ms": 3.839,
-        "speedup_ratio": 3.79,
+        "original_time_ms": 14.628,
+        "optimized_time_ms": 3.919,
+        "speedup_ratio": 3.73,
         "original_row_count": 60,
         "optimized_row_count": 80,
         "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
@@ -775,9 +775,9 @@
         "status": "FAILED",
         "is_valid": null,
         "verification_message": null,
-        "original_time_ms": 14.636,
-        "optimized_time_ms": 3.836,
-        "speedup_ratio": 3.82,
+        "original_time_ms": 14.746,
+        "optimized_time_ms": 3.896,
+        "speedup_ratio": 3.78,
         "original_row_count": 60,
         "optimized_row_count": 80,
         "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
@@ -809,9 +809,9 @@
         "status": "FAILED",
         "is_valid": null,
         "verification_message": null,
-        "original_time_ms": 14.752,
-        "optimized_time_ms": 3.812,
-        "speedup_ratio": 3.87,
+        "original_time_ms": 14.501,
+        "optimized_time_ms": 3.771,
+        "speedup_ratio": 3.85,
         "original_row_count": 60,
         "optimized_row_count": 80,
         "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
@@ -843,9 +843,9 @@
         "status": "PASSED",
         "is_valid": true,
         "verification_message": "Optimization failed after 3 retries. Falling back to original SQL for safety.",
-        "original_time_ms": 14.534,
-        "optimized_time_ms": 14.545,
-        "speedup_ratio": 1.0
+        "original_time_ms": 14.49,
+        "optimized_time_ms": 14.665,
+        "speedup_ratio": 0.99
       },
       "retries_triggered": 3,
       "llm_output": {

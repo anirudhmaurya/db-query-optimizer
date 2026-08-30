@@ -3,7 +3,7 @@
   "test_case_name": "unindexed_wildcard_search",
   "anti_pattern": "Unindexed LIKE with leading wildcard on JSON payload and names",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:03:14Z",
+  "start_time": "2026-08-30T14:04:41Z",
   "original_query": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
   "stages": {
     "profiler": {
@@ -140,9 +140,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 38.078,
-            "optimized_time_ms": 49.752,
-            "speedup_ratio": 0.77,
+            "original_time_ms": 37.942,
+            "optimized_time_ms": 38.351,
+            "speedup_ratio": 0.99,
             "original_row_count": 50,
             "optimized_row_count": 50,
             "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -173,7 +173,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.088
+          "elapsed_sec": 0.077
         }
       ]
     }
@@ -322,9 +322,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
-        "original_time_ms": 38.078,
-        "optimized_time_ms": 49.752,
-        "speedup_ratio": 0.77,
+        "original_time_ms": 37.942,
+        "optimized_time_ms": 38.351,
+        "speedup_ratio": 0.99,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "error_details": null,

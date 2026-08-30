@@ -3,7 +3,7 @@
   "test_case_name": "non_sargable_date_trap",
   "anti_pattern": "The Non-SARGable Trap: Date formatting function strftime() in WHERE clause",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:03:14Z",
+  "start_time": "2026-08-30T14:04:41Z",
   "original_query": "SELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;",
   "stages": {
     "profiler": {
@@ -129,7 +129,7 @@
       "applied_indexes": [
         "CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);"
       ],
-      "elapsed_sec": 0.022
+      "elapsed_sec": 0.023
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -152,9 +152,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 11.353,
-            "optimized_time_ms": 5.373,
-            "speedup_ratio": 2.11,
+            "original_time_ms": 11.236,
+            "optimized_time_ms": 5.418,
+            "speedup_ratio": 2.07,
             "original_row_count": 25,
             "optimized_row_count": 25,
             "verification_message": "Result sets match perfectly as multiset (25 rows).",
@@ -358,9 +358,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (25 rows).",
-        "original_time_ms": 11.353,
-        "optimized_time_ms": 5.373,
-        "speedup_ratio": 2.11,
+        "original_time_ms": 11.236,
+        "optimized_time_ms": 5.418,
+        "speedup_ratio": 2.07,
         "original_row_count": 25,
         "optimized_row_count": 25,
         "error_details": null,

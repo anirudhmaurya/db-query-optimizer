@@ -33,34 +33,32 @@ Follow these step-by-step instructions starting from a clean environment.
 - Python 3.10+
 - Internet connection (for API calls) or use `--mock` for local offline verification.
 
-### Step 1: Clone Repository & Setup Environment
+### Quickstart (Automated Setup)
+Run the automated environment setup script or use `make`:
 ```bash
-# Clone the repository
-git clone <repo-url>
-cd m1-db-query-optimizer
+# Automated setup (creates venv, installs requirements, inits database)
+chmod +x setup.sh && ./setup.sh
 
-# Create and activate a clean virtual environment
+# Or using Makefile
+make setup
+```
+
+### Manual Setup (Step-by-Step)
+```bash
+# 1. Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
-# Install dependencies
+# 2. Install requirements
 pip install -r requirements.txt
-```
 
-### Step 2: Configure Environment Variables
-```bash
-# Create local .env from example template
+# 3. Configure environment variables
 cp .env.example .env
 ```
-Edit `.env` and provide your API key (DeepSeek is the default preferred provider):
+Edit `.env` and set your API key:
 ```bash
 # DeepSeek API Key (Get from: https://platform.deepseek.com/api_keys)
 DEEPSEEK_API_KEY=sk-your-deepseek-api-key-here
-
-# Optional: Other supported providers
-# GEMINI_API_KEY=your_gemini_api_key_here
-# OPENAI_API_KEY=your_openai_api_key_here
-# ANTHROPIC_API_KEY=your_anthropic_api_key_here
 ```
 
 ### Step 3: Execution Order

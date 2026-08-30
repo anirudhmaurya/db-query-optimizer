@@ -3,7 +3,7 @@
   "test_case_name": "unindexed_computed_expression_aggregation",
   "anti_pattern": "Heavy unindexed computed arithmetic join with multi-level grouping",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T13:04:16Z",
+  "start_time": "2026-08-30T13:05:34Z",
   "original_query": "SELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;",
   "stages": {
     "profiler": {
@@ -189,9 +189,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 16.773,
-            "optimized_time_ms": 16.469,
-            "speedup_ratio": 1.02,
+            "original_time_ms": 16.676,
+            "optimized_time_ms": 19.509,
+            "speedup_ratio": 0.85,
             "original_row_count": 25,
             "optimized_row_count": 25,
             "verification_message": "Result sets match perfectly as multiset (25 rows).",
@@ -246,7 +246,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.034
+          "elapsed_sec": 0.037
         }
       ]
     }
@@ -443,9 +443,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (25 rows).",
-        "original_time_ms": 16.773,
-        "optimized_time_ms": 16.469,
-        "speedup_ratio": 1.02,
+        "original_time_ms": 16.676,
+        "optimized_time_ms": 19.509,
+        "speedup_ratio": 0.85,
         "original_row_count": 25,
         "optimized_row_count": 25,
         "error_details": null,

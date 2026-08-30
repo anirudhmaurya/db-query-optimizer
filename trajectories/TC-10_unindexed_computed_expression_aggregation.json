@@ -2,8 +2,8 @@
   "test_case_id": "TC-10",
   "test_case_name": "unindexed_computed_expression_aggregation",
   "anti_pattern": "Heavy unindexed computed arithmetic join with multi-level grouping",
-  "model": "deepseek-chat",
-  "start_time": "2026-08-30T12:12:05Z",
+  "model": "mock-orchestrator",
+  "start_time": "2026-08-30T12:16:00Z",
   "original_query": "SELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;",
   "stages": {
     "profiler": {
@@ -73,83 +73,56 @@
         "identified_bottlenecks": [
           {
             "type": "FULL_TABLE_SCAN",
-            "table": "order_items",
-            "detail": "The query performs a full table scan on order_items (oi) because there is no index on product_id or order_id that can be used to filter or group efficiently. This is the primary driver of the query cost, especially if the table is large.",
-            "severity": "HIGH"
-          },
-          {
-            "type": "NON_SARGABLE_PREDICATE",
-            "table": "order_items",
-            "detail": "The WHERE clause uses (oi.quantity * oi.unit_price) >= 150.0, which is a computed expression on columns. This prevents the use of any index on quantity or unit_price, forcing a full scan and computation for every row.",
+            "table": "oi",
+            "detail": "Sequential scan on oi table across full dataset.",
             "severity": "HIGH"
           },
           {
             "type": "TEMP_BTREE_SORT",
             "table": null,
-            "detail": "The query uses three temporary B-tree operations: one for GROUP BY, one for COUNT(DISTINCT), and one for ORDER BY. These are expensive because they require sorting and storing intermediate results, especially with large data volumes.",
-            "severity": "MEDIUM"
-          },
-          {
-            "type": "UNINDEXED_JOIN",
-            "table": "orders",
-            "detail": "The join between order_items and orders uses the primary key of orders (rowid lookup), which is efficient. However, the lack of an index on order_items.order_id means the join requires a full scan of order_items to find matching orders, which is suboptimal.",
+            "detail": "Temporary B-Tree created for sorting or grouping.",
             "severity": "MEDIUM"
           }
         ],
         "critical_tables": [
-          "order_items",
-          "orders"
+          "oi"
         ],
         "has_temp_btree_sort": true,
-        "optimization_strategy": "Create indexes on order_items(order_id) and order_items(product_id) to speed up the join and grouping. Consider adding a generated column for line_total (quantity * unit_price) and indexing it to make the WHERE and HAVING predicates sargable. Also, consider using a covering index on order_items(product_id, order_id, quantity, unit_price) to avoid temp B-trees for GROUP BY and COUNT(DISTINCT). For the ORDER BY, consider pre-aggregating or using a materialized view if the query is frequent.",
-        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 9,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN oi\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"oi\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 16,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH o USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"o\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 26,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR GROUP BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 91,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR count(DISTINCT)\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 94,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
-        "raw_response": "{\n  \"identified_bottlenecks\": [\n    {\n      \"type\": \"FULL_TABLE_SCAN\",\n      \"table\": \"order_items\",\n      \"detail\": \"The query performs a full table scan on order_items (oi) because there is no index on product_id or order_id that can be used to filter or group efficiently. This is the primary driver of the query cost, especially if the table is large.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"NON_SARGABLE_PREDICATE\",\n      \"table\": \"order_items\",\n      \"detail\": \"The WHERE clause uses (oi.quantity * oi.unit_price) >= 150.0, which is a computed expression on columns. This prevents the use of any index on quantity or unit_price, forcing a full scan and computation for every row.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"TEMP_BTREE_SORT\",\n      \"table\": null,\n      \"detail\": \"The query uses three temporary B-tree operations: one for GROUP BY, one for COUNT(DISTINCT), and one for ORDER BY. These are expensive because they require sorting and storing intermediate results, especially with large data volumes.\",\n      \"severity\": \"MEDIUM\"\n    },\n    {\n      \"type\": \"UNINDEXED_JOIN\",\n      \"table\": \"orders\",\n      \"detail\": \"The join between order_items and orders uses the primary key of orders (rowid lookup), which is efficient. However, the lack of an index on order_items.order_id means the join requires a full scan of order_items to find matching orders, which is suboptimal.\",\n      \"severity\": \"MEDIUM\"\n    }\n  ],\n  \"critical_tables\": [\"order_items\", \"orders\"],\n  \"has_temp_btree_sort\": true,\n  \"optimization_strategy\": \"Create indexes on order_items(order_id) and order_items(product_id) to speed up the join and grouping. Consider adding a generated column for line_total (quantity * unit_price) and indexing it to make the WHERE and HAVING predicates sargable. Also, consider using a covering index on order_items(product_id, order_id, quantity, unit_price) to avoid temp B-trees for GROUP BY and COUNT(DISTINCT). For the ORDER BY, consider pre-aggregating or using a materialized view if the query is frequent.\"\n}"
+        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
+        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 9,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN oi\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"oi\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 16,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH o USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"o\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 26,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR GROUP BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 91,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR count(DISTINCT)\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 94,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
       },
-      "elapsed_sec": 4.753
+      "elapsed_sec": 0.0
     },
     "index_architect": {
       "architect_report": {
         "recommended_indexes": [
           {
             "table": "order_items",
-            "ddl": "CREATE INDEX idx_order_items_order_id_product_id ON order_items (order_id, product_id);",
-            "purpose": "This composite index supports the join on order_id (avoiding full scan of order_items) and enables efficient grouping by product_id via index-only scan for the GROUP BY, while also covering the COUNT(DISTINCT order_id) and SUM(quantity) aggregates."
-          },
-          {
-            "table": "orders",
-            "ddl": "CREATE INDEX idx_orders_status_id ON orders (status, id);",
-            "purpose": "This index allows quick filtering of orders by status (excluding 'cancelled' and 'refunded') and provides the id for the join, reducing the number of rows from orders that need to be processed."
-          },
-          {
-            "table": "order_items",
-            "ddl": "CREATE INDEX idx_order_items_product_id_quantity_unit_price ON order_items (product_id, quantity, unit_price);",
-            "purpose": "This covering index on product_id with quantity and unit_price allows the query to compute the expensive predicate (quantity * unit_price) and the HAVING sum without accessing the table, and also supports the GROUP BY product_id and the ORDER BY total_sales_value via index-only scan."
+            "ddl": "CREATE INDEX IF NOT EXISTS idx_order_items_product_order ON order_items (product_id, order_id, quantity, unit_price);",
+            "purpose": "Composite index for product aggregation and order join."
           }
         ],
-        "rationale": "The primary bottleneck is the full table scan on order_items. The first index (order_id, product_id) eliminates the full scan for the join and enables efficient grouping. The second index on orders (status, id) reduces the number of orders to join. The third index is a covering index that allows the query to compute all aggregates and filters directly from the index, avoiding table access and reducing temporary B-tree operations. Together, these indexes convert the query from a full scan with multiple sorts into index-only scans and efficient lookups.",
-        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"order_items\",\n    \"detail\": \"The query performs a full table scan on order_items (oi) because there is no index on product_id or order_id that can be used to filter or group efficiently. This is the primary driver of the query cost, especially if the table is large.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"order_items\",\n    \"detail\": \"The WHERE clause uses (oi.quantity * oi.unit_price) >= 150.0, which is a computed expression on columns. This prevents the use of any index on quantity or unit_price, forcing a full scan and computation for every row.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query uses three temporary B-tree operations: one for GROUP BY, one for COUNT(DISTINCT), and one for ORDER BY. These are expensive because they require sorting and storing intermediate results, especially with large data volumes.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The join between order_items and orders uses the primary key of orders (rowid lookup), which is efficient. However, the lack of an index on order_items.order_id means the join requires a full scan of order_items to find matching orders, which is suboptimal.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
-        "raw_response": "{\n  \"recommended_indexes\": [\n    {\n      \"table\": \"order_items\",\n      \"ddl\": \"CREATE INDEX idx_order_items_order_id_product_id ON order_items (order_id, product_id);\",\n      \"purpose\": \"This composite index supports the join on order_id (avoiding full scan of order_items) and enables efficient grouping by product_id via index-only scan for the GROUP BY, while also covering the COUNT(DISTINCT order_id) and SUM(quantity) aggregates.\"\n    },\n    {\n      \"table\": \"orders\",\n      \"ddl\": \"CREATE INDEX idx_orders_status_id ON orders (status, id);\",\n      \"purpose\": \"This index allows quick filtering of orders by status (excluding 'cancelled' and 'refunded') and provides the id for the join, reducing the number of rows from orders that need to be processed.\"\n    },\n    {\n      \"table\": \"order_items\",\n      \"ddl\": \"CREATE INDEX idx_order_items_product_id_quantity_unit_price ON order_items (product_id, quantity, unit_price);\",\n      \"purpose\": \"This covering index on product_id with quantity and unit_price allows the query to compute the expensive predicate (quantity * unit_price) and the HAVING sum without accessing the table, and also supports the GROUP BY product_id and the ORDER BY total_sales_value via index-only scan.\"\n    }\n  ],\n  \"rationale\": \"The primary bottleneck is the full table scan on order_items. The first index (order_id, product_id) eliminates the full scan for the join and enables efficient grouping. The second index on orders (status, id) reduces the number of orders to join. The third index is a covering index that allows the query to compute all aggregates and filters directly from the index, avoiding table access and reducing temporary B-tree operations. Together, these indexes convert the query from a full scan with multiple sorts into index-only scans and efficient lookups.\"\n}",
+        "rationale": "Created composite covering indexes matching query join and filter columns.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"oi\",\n    \"detail\": \"Sequential scan on oi table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
         "applied_indexes": [
-          "CREATE INDEX idx_order_items_order_id_product_id ON order_items (order_id, product_id);",
-          "CREATE INDEX idx_orders_status_id ON orders (status, id);",
-          "CREATE INDEX idx_order_items_product_id_quantity_unit_price ON order_items (product_id, quantity, unit_price);"
+          "CREATE INDEX IF NOT EXISTS idx_order_items_product_order ON order_items (product_id, order_id, quantity, unit_price);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
-            "id": 10,
+            "id": 9,
             "parent_id": 0,
-            "detail": "SCAN oi USING INDEX idx_order_items_product_id_quantity_unit_price",
+            "detail": "SCAN oi USING COVERING INDEX idx_order_items_product_order",
             "operation_type": "SCAN",
             "table": "oi",
-            "index": "idx_order_items_product_id_quantity_unit_price",
+            "index": "idx_order_items_product_order",
             "is_scan": true,
             "is_search": false,
             "uses_temp_btree": false,
-            "uses_covering_index": false
+            "uses_covering_index": true
           },
           {
-            "id": 18,
+            "id": 16,
             "parent_id": 0,
             "detail": "SEARCH o USING INTEGER PRIMARY KEY (rowid=?)",
             "operation_type": "SEARCH",
@@ -161,7 +134,7 @@
             "uses_covering_index": false
           },
           {
-            "id": 81,
+            "id": 79,
             "parent_id": 0,
             "detail": "USE TEMP B-TREE FOR count(DISTINCT)",
             "operation_type": "TEMP_BTREE",
@@ -173,7 +146,7 @@
             "uses_covering_index": false
           },
           {
-            "id": 84,
+            "id": 82,
             "parent_id": 0,
             "detail": "USE TEMP B-TREE FOR ORDER BY",
             "operation_type": "TEMP_BTREE",
@@ -190,11 +163,9 @@
         ]
       },
       "applied_indexes": [
-        "CREATE INDEX idx_order_items_order_id_product_id ON order_items (order_id, product_id);",
-        "CREATE INDEX idx_orders_status_id ON orders (status, id);",
-        "CREATE INDEX idx_order_items_product_id_quantity_unit_price ON order_items (product_id, quantity, unit_price);"
+        "CREATE INDEX IF NOT EXISTS idx_order_items_product_order ON order_items (product_id, order_id, quantity, unit_price);"
       ],
-      "elapsed_sec": 4.57
+      "elapsed_sec": 0.022
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -203,16 +174,13 @@
         {
           "attempt": 1,
           "developer_report": {
-            "rewritten_sql": "SELECT oi.product_id, COUNT(DISTINCT oi.order_id) AS total_distinct_orders, SUM(oi.quantity) AS total_units_sold, ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value, ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.status NOT IN ('cancelled', 'refunded') AND oi.quantity * oi.unit_price >= 150.0 GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;",
+            "rewritten_sql": "SELECT oi.product_id,\n       COUNT(DISTINCT oi.order_id) AS total_distinct_orders,\n       SUM(oi.quantity) AS total_units_sold,\n       ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,\n       ROUND(AVG(oi.unit_price), 2) AS avg_unit_price\nFROM order_items oi\nJOIN orders o ON oi.order_id = o.id\nWHERE (oi.quantity * oi.unit_price) >= 150.0\n  AND o.status NOT IN ('cancelled', 'refunded')\nGROUP BY oi.product_id\nHAVING SUM(oi.quantity * oi.unit_price) > 5000.0\nORDER BY total_sales_value DESC\nLIMIT 25;",
             "applied_techniques": [
-              "Reordered WHERE clauses to put the join condition first, allowing the optimizer to use the index on order_items.order_id for the join.",
-              "Kept the computed predicate (oi.quantity * oi.unit_price) >= 150.0 as is, but ensured it is evaluated after the join filter to reduce the number of rows processed.",
-              "Leveraged the existing indexes: idx_order_items_order_id_product_id for the join and grouping, and idx_orders_status_id for filtering orders by status.",
-              "No window functions or CTEs were needed because the query is already a simple aggregation with a HAVING clause; the main bottleneck was the full table scan, which is mitigated by the indexes."
+              "Index-Supported Join",
+              "Multi-column Grouping"
             ],
-            "rationale": "The original query performed a full table scan on order_items because there was no index on order_id or product_id. The applied indexes (idx_order_items_order_id_product_id and idx_orders_status_id) allow the join to orders to be performed via index lookup on order_items.order_id, and the status filter on orders to be applied via index. The WHERE clause order was adjusted to put the join condition first, which helps the query planner use the index for the join. The computed predicate on quantity * unit_price remains non-SARGable, but it is applied after the join, reducing the number of rows that need the computation. The GROUP BY and ORDER BY are still performed, but the intermediate result set is smaller due to the filtered join. No window functions or CTEs were necessary because the query is a straightforward aggregation with a HAVING clause.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"order_items\",\n    \"detail\": \"The query performs a full table scan on order_items (oi) because there is no index on product_id or order_id that can be used to filter or group efficiently. This is the primary driver of the query cost, especially if the table is large.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"order_items\",\n    \"detail\": \"The WHERE clause uses (oi.quantity * oi.unit_price) >= 150.0, which is a computed expression on columns. This prevents the use of any index on quantity or unit_price, forcing a full scan and computation for every row.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query uses three temporary B-tree operations: one for GROUP BY, one for COUNT(DISTINCT), and one for ORDER BY. These are expensive because they require sorting and storing intermediate results, especially with large data volumes.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The join between order_items and orders uses the primary key of orders (rowid lookup), which is efficient. However, the lack of an index on order_items.order_id means the join requires a full scan of order_items to find matching orders, which is suboptimal.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_order_items_order_id_product_id ON order_items (order_id, product_id);\",\n  \"CREATE INDEX idx_orders_status_id ON orders (status, id);\",\n  \"CREATE INDEX idx_order_items_product_id_quantity_unit_price ON order_items (product_id, quantity, unit_price);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
-            "raw_response": "{\n  \"rewritten_sql\": \"SELECT oi.product_id, COUNT(DISTINCT oi.order_id) AS total_distinct_orders, SUM(oi.quantity) AS total_units_sold, ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value, ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.status NOT IN ('cancelled', 'refunded') AND oi.quantity * oi.unit_price >= 150.0 GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;\",\n  \"applied_techniques\": [\n    \"Reordered WHERE clauses to put the join condition first, allowing the optimizer to use the index on order_items.order_id for the join.\",\n    \"Kept the computed predicate (oi.quantity * oi.unit_price) >= 150.0 as is, but ensured it is evaluated after the join filter to reduce the number of rows processed.\",\n    \"Leveraged the existing indexes: idx_order_items_order_id_product_id for the join and grouping, and idx_orders_status_id for filtering orders by status.\",\n    \"No window functions or CTEs were needed because the query is already a simple aggregation with a HAVING clause; the main bottleneck was the full table scan, which is mitigated by the indexes.\"\n  ],\n  \"rationale\": \"The original query performed a full table scan on order_items because there was no index on order_id or product_id. The applied indexes (idx_order_items_order_id_product_id and idx_orders_status_id) allow the join to orders to be performed via index lookup on order_items.order_id, and the status filter on orders to be applied via index. The WHERE clause order was adjusted to put the join condition first, which helps the query planner use the index for the join. The computed predicate on quantity * unit_price remains non-SARGable, but it is applied after the join, reducing the number of rows that need the computation. The GROUP BY and ORDER BY are still performed, but the intermediate result set is smaller due to the filtered join. No window functions or CTEs were necessary because the query is a straightforward aggregation with a HAVING clause.\"\n}"
+            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"oi\",\n    \"detail\": \"Sequential scan on oi table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_order_items_product_order ON order_items (product_id, order_id, quantity, unit_price);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
           },
           "verification_report": {
             "status": "PASSED",
@@ -220,27 +188,27 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 71.474,
-            "optimized_time_ms": 38.008,
-            "speedup_ratio": 1.88,
+            "original_time_ms": 15.99,
+            "optimized_time_ms": 15.994,
+            "speedup_ratio": 1.0,
             "original_row_count": 25,
             "optimized_row_count": 25,
             "verification_message": "Result sets match perfectly as multiset (25 rows).",
             "post_explain_plan": [
               {
-                "id": 10,
+                "id": 9,
                 "parent_id": 0,
-                "detail": "SCAN oi USING INDEX idx_order_items_product_id_quantity_unit_price",
+                "detail": "SCAN oi USING COVERING INDEX idx_order_items_product_order",
                 "operation_type": "SCAN",
                 "table": "oi",
-                "index": "idx_order_items_product_id_quantity_unit_price",
+                "index": "idx_order_items_product_order",
                 "is_scan": true,
                 "is_search": false,
                 "uses_temp_btree": false,
-                "uses_covering_index": false
+                "uses_covering_index": true
               },
               {
-                "id": 18,
+                "id": 16,
                 "parent_id": 0,
                 "detail": "SEARCH o USING INTEGER PRIMARY KEY (rowid=?)",
                 "operation_type": "SEARCH",
@@ -252,7 +220,7 @@
                 "uses_covering_index": false
               },
               {
-                "id": 81,
+                "id": 79,
                 "parent_id": 0,
                 "detail": "USE TEMP B-TREE FOR count(DISTINCT)",
                 "operation_type": "TEMP_BTREE",
@@ -264,7 +232,7 @@
                 "uses_covering_index": false
               },
               {
-                "id": 84,
+                "id": 82,
                 "parent_id": 0,
                 "detail": "USE TEMP B-TREE FOR ORDER BY",
                 "operation_type": "TEMP_BTREE",
@@ -277,7 +245,7 @@
               }
             ]
           },
-          "elapsed_sec": 5.067
+          "elapsed_sec": 0.032
         }
       ]
     }

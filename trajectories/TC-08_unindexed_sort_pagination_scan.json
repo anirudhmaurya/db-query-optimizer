@@ -2,8 +2,8 @@
   "test_case_id": "TC-08",
   "test_case_name": "unindexed_sort_pagination_scan",
   "anti_pattern": "Unindexed order by and pagination scan on filtered event types",
-  "model": "deepseek-chat",
-  "start_time": "2026-08-30T12:11:46Z",
+  "model": "mock-orchestrator",
+  "start_time": "2026-08-30T12:16:00Z",
   "original_query": "SELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;",
   "stages": {
     "profiler": {
@@ -38,13 +38,13 @@
           {
             "type": "FULL_TABLE_SCAN",
             "table": "events",
-            "detail": "The query filters on event_type but there is no index on events.event_type, causing a full table scan of the events table. This is inefficient especially with large data volumes.",
+            "detail": "Sequential scan on events table across full dataset.",
             "severity": "HIGH"
           },
           {
             "type": "TEMP_BTREE_SORT",
             "table": null,
-            "detail": "The ORDER BY created_at DESC requires a temporary B-tree sort because there is no index supporting the sort order. This adds overhead and memory usage, especially with OFFSET 1000 and LIMIT 50.",
+            "detail": "Temporary B-Tree created for sorting or grouping.",
             "severity": "MEDIUM"
           }
         ],
@@ -52,48 +52,48 @@
           "events"
         ],
         "has_temp_btree_sort": true,
-        "optimization_strategy": "Create a composite index on events(event_type, created_at DESC) to support both the WHERE filter and the ORDER BY, eliminating the full table scan and the temporary B-tree sort. This will allow the query to use an index scan and retrieve the rows in order directly.",
-        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 7,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN events\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"events\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 24,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
-        "raw_response": "{\n  \"identified_bottlenecks\": [\n    {\n      \"type\": \"FULL_TABLE_SCAN\",\n      \"table\": \"events\",\n      \"detail\": \"The query filters on event_type but there is no index on events.event_type, causing a full table scan of the events table. This is inefficient especially with large data volumes.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"TEMP_BTREE_SORT\",\n      \"table\": null,\n      \"detail\": \"The ORDER BY created_at DESC requires a temporary B-tree sort because there is no index supporting the sort order. This adds overhead and memory usage, especially with OFFSET 1000 and LIMIT 50.\",\n      \"severity\": \"MEDIUM\"\n    }\n  ],\n  \"critical_tables\": [\"events\"],\n  \"has_temp_btree_sort\": true,\n  \"optimization_strategy\": \"Create a composite index on events(event_type, created_at DESC) to support both the WHERE filter and the ORDER BY, eliminating the full table scan and the temporary B-tree sort. This will allow the query to use an index scan and retrieve the rows in order directly.\"\n}"
+        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
+        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 7,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN events\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"events\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 24,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
       },
-      "elapsed_sec": 2.748
+      "elapsed_sec": 0.0
     },
     "index_architect": {
       "architect_report": {
         "recommended_indexes": [
           {
             "table": "events",
-            "ddl": "CREATE INDEX idx_events_type_created ON events (event_type, created_at DESC);",
-            "purpose": "This composite index supports filtering on event_type and provides the created_at values in descending order, eliminating the need for a temporary B-tree sort. The index can be scanned in reverse order to satisfy ORDER BY created_at DESC, and the LIMIT/OFFSET can be applied directly on the index."
+            "ddl": "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);",
+            "purpose": "Index timestamp sorting and user join key."
           }
         ],
-        "rationale": "The primary bottleneck is the full table scan on events due to the filter on event_type. Adding a composite index on (event_type, created_at DESC) turns the query into a targeted index range scan, and the index order matches the required sort order, removing the temp B-tree sort. This single index addresses both profiler issues efficiently. No additional indexes are needed for this query.",
-        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"The query filters on event_type but there is no index on events.event_type, causing a full table scan of the events table. This is inefficient especially with large data volumes.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The ORDER BY created_at DESC requires a temporary B-tree sort because there is no index supporting the sort order. This adds overhead and memory usage, especially with OFFSET 1000 and LIMIT 50.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
-        "raw_response": "{\n  \"recommended_indexes\": [\n    {\n      \"table\": \"events\",\n      \"ddl\": \"CREATE INDEX idx_events_type_created ON events (event_type, created_at DESC);\",\n      \"purpose\": \"This composite index supports filtering on event_type and provides the created_at values in descending order, eliminating the need for a temporary B-tree sort. The index can be scanned in reverse order to satisfy ORDER BY created_at DESC, and the LIMIT/OFFSET can be applied directly on the index.\"\n    }\n  ],\n  \"rationale\": \"The primary bottleneck is the full table scan on events due to the filter on event_type. Adding a composite index on (event_type, created_at DESC) turns the query into a targeted index range scan, and the index order matches the required sort order, removing the temp B-tree sort. This single index addresses both profiler issues efficiently. No additional indexes are needed for this query.\"\n}",
+        "rationale": "Created composite covering indexes matching query join and filter columns.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"Sequential scan on events table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
         "applied_indexes": [
-          "CREATE INDEX idx_events_type_created ON events (event_type, created_at DESC);"
+          "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
             "id": 8,
             "parent_id": 0,
-            "detail": "SEARCH events USING INDEX idx_events_type_created (event_type=?)",
-            "operation_type": "SEARCH",
+            "detail": "SCAN events USING INDEX idx_events_created_user",
+            "operation_type": "SCAN",
             "table": "events",
-            "index": "idx_events_type_created",
-            "is_scan": false,
-            "is_search": true,
+            "index": "idx_events_created_user",
+            "is_scan": true,
+            "is_search": false,
             "uses_temp_btree": false,
             "uses_covering_index": false
           }
         ],
-        "scans_remaining": []
+        "scans_remaining": [
+          "events"
+        ]
       },
       "applied_indexes": [
-        "CREATE INDEX idx_events_type_created ON events (event_type, created_at DESC);"
+        "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
       ],
-      "elapsed_sec": 2.325
+      "elapsed_sec": 0.015
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -104,11 +104,10 @@
           "developer_report": {
             "rewritten_sql": "SELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;",
             "applied_techniques": [
-              "Index optimization"
+              "Covering Index Alignment"
             ],
-            "rationale": "The original query is already optimal in terms of SQL structure. The bottleneck is the lack of an index on (event_type, created_at DESC). By creating this composite index, the query can use an index seek on event_type and retrieve rows in the correct sort order without a full table scan or temporary B-tree sort. The query itself does not require rewriting; the performance improvement comes from the index.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"The query filters on event_type but there is no index on events.event_type, causing a full table scan of the events table. This is inefficient especially with large data volumes.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The ORDER BY created_at DESC requires a temporary B-tree sort because there is no index supporting the sort order. This adds overhead and memory usage, especially with OFFSET 1000 and LIMIT 50.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_events_type_created ON events (event_type, created_at DESC);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
-            "raw_response": "{\n  \"rewritten_sql\": \"SELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;\",\n  \"applied_techniques\": [\"Index optimization\"],\n  \"rationale\": \"The original query is already optimal in terms of SQL structure. The bottleneck is the lack of an index on (event_type, created_at DESC). By creating this composite index, the query can use an index seek on event_type and retrieve rows in the correct sort order without a full table scan or temporary B-tree sort. The query itself does not require rewriting; the performance improvement comes from the index.\"\n}"
+            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"Sequential scan on events table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
           },
           "verification_report": {
             "status": "PASSED",
@@ -116,9 +115,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 2.69,
-            "optimized_time_ms": 1.23,
-            "speedup_ratio": 2.19,
+            "original_time_ms": 8.628,
+            "optimized_time_ms": 8.067,
+            "speedup_ratio": 1.07,
             "original_row_count": 50,
             "optimized_row_count": 50,
             "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -126,18 +125,18 @@
               {
                 "id": 8,
                 "parent_id": 0,
-                "detail": "SEARCH events USING INDEX idx_events_type_created (event_type=?)",
-                "operation_type": "SEARCH",
+                "detail": "SCAN events USING INDEX idx_events_created_user",
+                "operation_type": "SCAN",
                 "table": "events",
-                "index": "idx_events_type_created",
-                "is_scan": false,
-                "is_search": true,
+                "index": "idx_events_created_user",
+                "is_scan": true,
+                "is_search": false,
                 "uses_temp_btree": false,
                 "uses_covering_index": false
               }
             ]
           },
-          "elapsed_sec": 2.144
+          "elapsed_sec": 0.017
         }
       ]
     }

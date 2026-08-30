@@ -2,8 +2,8 @@
   "test_case_id": "TC-07",
   "test_case_name": "correlated_exists_vs_indexed_join",
   "anti_pattern": "Correlated EXISTS subquery with non-indexed filter conditions",
-  "model": "deepseek-chat",
-  "start_time": "2026-08-30T12:45:37Z",
+  "model": "mock-orchestrator",
+  "start_time": "2026-08-30T12:59:11Z",
   "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;",
   "stages": {
     "profiler": {
@@ -49,60 +49,40 @@
         "identified_bottlenecks": [
           {
             "type": "FULL_TABLE_SCAN",
-            "table": "users",
-            "detail": "The outer query scans the entire users table (SCAN u) without using an index, which is inefficient especially if the table is large. The ORDER BY u.id could benefit from an index on users.id, but the scan still occurs because the query planner chose to scan all rows to evaluate the EXISTS subquery.",
+            "table": "u",
+            "detail": "Sequential scan on u table across full dataset.",
             "severity": "HIGH"
           },
           {
-            "type": "CORRELATED_SUBQUERY",
-            "table": "orders",
-            "detail": "The EXISTS subquery is correlated to the outer query (o.user_id = u.id) and performs a full table scan (SCAN o) for each user row. This results in O(N*M) complexity where N is the number of users and M is the number of orders. The lack of an index on orders.user_id, orders.status, orders.amount, and orders.order_date forces a full scan for each user.",
-            "severity": "HIGH"
-          },
-          {
-            "type": "UNINDEXED_JOIN",
-            "table": "orders",
-            "detail": "The subquery joins on o.user_id = u.id but there is no index on orders.user_id. This makes the correlated subquery perform a full table scan for each user, which is a classic unindexed join bottleneck.",
+            "type": "FULL_TABLE_SCAN",
+            "table": "o",
+            "detail": "Sequential scan on o table across full dataset.",
             "severity": "HIGH"
           }
         ],
         "critical_tables": [
-          "users",
-          "orders"
+          "o",
+          "u"
         ],
         "has_temp_btree_sort": false,
-        "optimization_strategy": "Create indexes on orders(user_id, status, amount, order_date) to support the correlated subquery, and consider rewriting the query to use an INNER JOIN with DISTINCT or a semi-join to avoid the correlated subquery. Also, ensure an index on users.id is present (it is the primary key, so it exists) but the planner may still scan if the subquery is expensive; using a JOIN with a derived table or EXISTS with proper indexes will help.",
-        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 4,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN u\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 7,\n    \"parent_id\": 0,\n    \"detail\": \"CORRELATED SCALAR SUBQUERY 1\",\n    \"operation_type\": \"SUBQUERY\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 11,\n    \"parent_id\": 7,\n    \"detail\": \"SCAN o\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"o\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
-        "raw_response": "{\n  \"identified_bottlenecks\": [\n    {\n      \"type\": \"FULL_TABLE_SCAN\",\n      \"table\": \"users\",\n      \"detail\": \"The outer query scans the entire users table (SCAN u) without using an index, which is inefficient especially if the table is large. The ORDER BY u.id could benefit from an index on users.id, but the scan still occurs because the query planner chose to scan all rows to evaluate the EXISTS subquery.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"CORRELATED_SUBQUERY\",\n      \"table\": \"orders\",\n      \"detail\": \"The EXISTS subquery is correlated to the outer query (o.user_id = u.id) and performs a full table scan (SCAN o) for each user row. This results in O(N*M) complexity where N is the number of users and M is the number of orders. The lack of an index on orders.user_id, orders.status, orders.amount, and orders.order_date forces a full scan for each user.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"UNINDEXED_JOIN\",\n      \"table\": \"orders\",\n      \"detail\": \"The subquery joins on o.user_id = u.id but there is no index on orders.user_id. This makes the correlated subquery perform a full table scan for each user, which is a classic unindexed join bottleneck.\",\n      \"severity\": \"HIGH\"\n    }\n  ],\n  \"critical_tables\": [\"users\", \"orders\"],\n  \"has_temp_btree_sort\": false,\n  \"optimization_strategy\": \"Create indexes on orders(user_id, status, amount, order_date) to support the correlated subquery, and consider rewriting the query to use an INNER JOIN with DISTINCT or a semi-join to avoid the correlated subquery. Also, ensure an index on users.id is present (it is the primary key, so it exists) but the planner may still scan if the subquery is expensive; using a JOIN with a derived table or EXISTS with proper indexes will help.\"\n}"
+        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
+        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 4,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN u\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 7,\n    \"parent_id\": 0,\n    \"detail\": \"CORRELATED SCALAR SUBQUERY 1\",\n    \"operation_type\": \"SUBQUERY\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 11,\n    \"parent_id\": 7,\n    \"detail\": \"SCAN o\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"o\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
       },
-      "elapsed_sec": 4.267
+      "elapsed_sec": 0.0
     },
     "index_architect": {
       "architect_report": {
         "recommended_indexes": [
           {
             "table": "orders",
-            "ddl": "CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);",
-            "purpose": "This composite index supports the correlated subquery by allowing a quick lookup of orders for each user with the given status, amount threshold, and date range. It eliminates the full table scan on orders for each user, turning the EXISTS check into a fast index range scan."
-          },
-          {
-            "table": "users",
-            "ddl": "CREATE INDEX idx_users_id ON users (id);",
-            "purpose": "Although users.id is the primary key and already indexed, this index is redundant but included to emphasize that the outer query's ORDER BY u.id can be satisfied by the primary key index. However, the main bottleneck is the subquery; this index is not strictly necessary but ensures the ORDER BY is efficient if the planner uses it."
-          },
-          {
-            "table": "orders",
-            "ddl": "CREATE INDEX idx_orders_status_amount_date ON orders (status, amount, order_date);",
-            "purpose": "This index can be used if the query planner decides to filter orders by status and amount before joining to users, potentially reducing the number of rows scanned. It provides an alternative access path that might be beneficial depending on the data distribution and query plan."
+            "ddl": "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);",
+            "purpose": "Composite covering index for order date and amount ranges."
           }
         ],
-        "rationale": "The primary bottleneck is the correlated subquery on orders, which lacks an index on the join column (user_id) and the filter columns (status, amount, order_date). The most impactful index is a composite covering index on orders that includes all columns used in the WHERE clause of the subquery, ordered to allow efficient equality on user_id and status, then range on amount and order_date. This converts the per-user full table scan into a quick index lookup. The users table scan is less critical because the primary key index already supports ORDER BY, but the main cost is the subquery. The additional index on orders (status, amount, order_date) provides flexibility for the optimizer to choose a different join order or filtering strategy, potentially improving performance further.",
-        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"users\",\n    \"detail\": \"The outer query scans the entire users table (SCAN u) without using an index, which is inefficient especially if the table is large. The ORDER BY u.id could benefit from an index on users.id, but the scan still occurs because the query planner chose to scan all rows to evaluate the EXISTS subquery.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"orders\",\n    \"detail\": \"The EXISTS subquery is correlated to the outer query (o.user_id = u.id) and performs a full table scan (SCAN o) for each user row. This results in O(N*M) complexity where N is the number of users and M is the number of orders. The lack of an index on orders.user_id, orders.status, orders.amount, and orders.order_date forces a full scan for each user.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The subquery joins on o.user_id = u.id but there is no index on orders.user_id. This makes the correlated subquery perform a full table scan for each user, which is a classic unindexed join bottleneck.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
-        "raw_response": "{\n  \"recommended_indexes\": [\n    {\n      \"table\": \"orders\",\n      \"ddl\": \"CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);\",\n      \"purpose\": \"This composite index supports the correlated subquery by allowing a quick lookup of orders for each user with the given status, amount threshold, and date range. It eliminates the full table scan on orders for each user, turning the EXISTS check into a fast index range scan.\"\n    },\n    {\n      \"table\": \"users\",\n      \"ddl\": \"CREATE INDEX idx_users_id ON users (id);\",\n      \"purpose\": \"Although users.id is the primary key and already indexed, this index is redundant but included to emphasize that the outer query's ORDER BY u.id can be satisfied by the primary key index. However, the main bottleneck is the subquery; this index is not strictly necessary but ensures the ORDER BY is efficient if the planner uses it.\"\n    },\n    {\n      \"table\": \"orders\",\n      \"ddl\": \"CREATE INDEX idx_orders_status_amount_date ON orders (status, amount, order_date);\",\n      \"purpose\": \"This index can be used if the query planner decides to filter orders by status and amount before joining to users, potentially reducing the number of rows scanned. It provides an alternative access path that might be beneficial depending on the data distribution and query plan.\"\n    }\n  ],\n  \"rationale\": \"The primary bottleneck is the correlated subquery on orders, which lacks an index on the join column (user_id) and the filter columns (status, amount, order_date). The most impactful index is a composite covering index on orders that includes all columns used in the WHERE clause of the subquery, ordered to allow efficient equality on user_id and status, then range on amount and order_date. This converts the per-user full table scan into a quick index lookup. The users table scan is less critical because the primary key index already supports ORDER BY, but the main cost is the subquery. The additional index on orders (status, amount, order_date) provides flexibility for the optimizer to choose a different join order or filtering strategy, potentially improving performance further.\"\n}",
+        "rationale": "Created composite covering indexes matching query join and filter columns.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"o\",\n    \"detail\": \"Sequential scan on o table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
         "applied_indexes": [
-          "CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);",
-          "CREATE INDEX idx_users_id ON users (id);",
-          "CREATE INDEX idx_orders_status_amount_date ON orders (status, amount, order_date);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
@@ -133,10 +113,10 @@
           {
             "id": 11,
             "parent_id": 7,
-            "detail": "SEARCH o USING COVERING INDEX idx_orders_user_status_amount_date (user_id=? AND status=? AND amount>?)",
+            "detail": "SEARCH o USING COVERING INDEX idx_orders_date_amt_user (order_date>?)",
             "operation_type": "SEARCH",
             "table": "o",
-            "index": "idx_orders_user_status_amount_date",
+            "index": "idx_orders_date_amt_user",
             "is_scan": false,
             "is_search": true,
             "uses_temp_btree": false,
@@ -148,28 +128,25 @@
         ]
       },
       "applied_indexes": [
-        "CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);",
-        "CREATE INDEX idx_users_id ON users (id);",
-        "CREATE INDEX idx_orders_status_amount_date ON orders (status, amount, order_date);"
+        "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);"
       ],
-      "elapsed_sec": 4.982
+      "elapsed_sec": 0.011
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
       "succeeded": true,
+      "fallback_triggered": false,
       "attempts": [
         {
           "attempt": 1,
           "developer_report": {
-            "rewritten_sql": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = 'completed' AND o.amount > 750.0 AND o.order_date >= '2025-01-01') ORDER BY u.id ASC LIMIT 100;",
+            "rewritten_sql": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nWHERE EXISTS (\n    SELECT 1 FROM orders o\n    WHERE o.user_id = u.id\n      AND o.status = 'completed'\n      AND o.amount > 750.0\n      AND o.order_date >= '2025-01-01 00:00:00'\n)\nORDER BY u.id ASC\nLIMIT 100;",
             "applied_techniques": [
-              "Added composite indexes to support the correlated subquery and ORDER BY",
-              "Converted date string to SARGable range predicate (already SARGable)",
-              "Preserved original query structure to maintain semantics"
+              "SARGable Date Comparison",
+              "Indexed EXISTS Scan"
             ],
-            "rationale": "The original query is already well-structured for SQLite. The main bottleneck is the lack of indexes. The applied indexes (idx_orders_user_status_amount_date and idx_orders_status_amount_date) allow the correlated subquery to use an index seek on orders.user_id, status, amount, and order_date, avoiding full table scans. The index on users.id supports the ORDER BY u.id. No query rewrite is needed because the EXISTS subquery is already efficient with proper indexing. The date predicate '2025-01-01' is already SARGable as a string comparison. The query remains unchanged to preserve exact output semantics.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"users\",\n    \"detail\": \"The outer query scans the entire users table (SCAN u) without using an index, which is inefficient especially if the table is large. The ORDER BY u.id could benefit from an index on users.id, but the scan still occurs because the query planner chose to scan all rows to evaluate the EXISTS subquery.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"orders\",\n    \"detail\": \"The EXISTS subquery is correlated to the outer query (o.user_id = u.id) and performs a full table scan (SCAN o) for each user row. This results in O(N*M) complexity where N is the number of users and M is the number of orders. The lack of an index on orders.user_id, orders.status, orders.amount, and orders.order_date forces a full scan for each user.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The subquery joins on o.user_id = u.id but there is no index on orders.user_id. This makes the correlated subquery perform a full table scan for each user, which is a classic unindexed join bottleneck.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);\",\n  \"CREATE INDEX idx_users_id ON users (id);\",\n  \"CREATE INDEX idx_orders_status_amount_date ON orders (status, amount, order_date);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
-            "raw_response": "{\n  \"rewritten_sql\": \"SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = 'completed' AND o.amount > 750.0 AND o.order_date >= '2025-01-01') ORDER BY u.id ASC LIMIT 100;\",\n  \"applied_techniques\": [\n    \"Added composite indexes to support the correlated subquery and ORDER BY\",\n    \"Converted date string to SARGable range predicate (already SARGable)\",\n    \"Preserved original query structure to maintain semantics\"\n  ],\n  \"rationale\": \"The original query is already well-structured for SQLite. The main bottleneck is the lack of indexes. The applied indexes (idx_orders_user_status_amount_date and idx_orders_status_amount_date) allow the correlated subquery to use an index seek on orders.user_id, status, amount, and order_date, avoiding full table scans. The index on users.id supports the ORDER BY u.id. No query rewrite is needed because the EXISTS subquery is already efficient with proper indexing. The date predicate '2025-01-01' is already SARGable as a string comparison. The query remains unchanged to preserve exact output semantics.\"\n}"
+            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"o\",\n    \"detail\": \"Sequential scan on o table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
           },
           "verification_report": {
             "status": "PASSED",
@@ -177,9 +154,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 2.56,
-            "optimized_time_ms": 1.873,
-            "speedup_ratio": 1.37,
+            "original_time_ms": 84.666,
+            "optimized_time_ms": 84.568,
+            "speedup_ratio": 1.0,
             "original_row_count": 100,
             "optimized_row_count": 100,
             "verification_message": "Result sets match perfectly as multiset (100 rows).",
@@ -211,10 +188,10 @@
               {
                 "id": 11,
                 "parent_id": 7,
-                "detail": "SEARCH o USING COVERING INDEX idx_orders_user_status_amount_date (user_id=? AND status=? AND amount>?)",
+                "detail": "SEARCH o USING COVERING INDEX idx_orders_date_amt_user (order_date>?)",
                 "operation_type": "SEARCH",
                 "table": "o",
-                "index": "idx_orders_user_status_amount_date",
+                "index": "idx_orders_date_amt_user",
                 "is_scan": false,
                 "is_search": true,
                 "uses_temp_btree": false,
@@ -222,7 +199,7 @@
               }
             ]
           },
-          "elapsed_sec": 3.22
+          "elapsed_sec": 0.17
         }
       ]
     }
@@ -281,50 +258,40 @@
         "identified_bottlenecks": [
           {
             "type": "FULL_TABLE_SCAN",
-            "table": "users",
-            "detail": "The outer query scans the entire users table (SCAN u) without using an index, which is inefficient especially if the table is large. The ORDER BY u.id could benefit from an index on users.id, but the scan still occurs because the query planner chose to scan all rows to evaluate the EXISTS subquery.",
+            "table": "u",
+            "detail": "Sequential scan on u table across full dataset.",
             "severity": "HIGH"
           },
           {
-            "type": "CORRELATED_SUBQUERY",
-            "table": "orders",
-            "detail": "The EXISTS subquery is correlated to the outer query (o.user_id = u.id) and performs a full table scan (SCAN o) for each user row. This results in O(N*M) complexity where N is the number of users and M is the number of orders. The lack of an index on orders.user_id, orders.status, orders.amount, and orders.order_date forces a full scan for each user.",
-            "severity": "HIGH"
-          },
-          {
-            "type": "UNINDEXED_JOIN",
-            "table": "orders",
-            "detail": "The subquery joins on o.user_id = u.id but there is no index on orders.user_id. This makes the correlated subquery perform a full table scan for each user, which is a classic unindexed join bottleneck.",
+            "type": "FULL_TABLE_SCAN",
+            "table": "o",
+            "detail": "Sequential scan on o table across full dataset.",
             "severity": "HIGH"
           }
         ],
         "critical_tables": [
-          "users",
-          "orders"
+          "o",
+          "u"
         ],
         "has_temp_btree_sort": false,
-        "optimization_strategy": "Create indexes on orders(user_id, status, amount, order_date) to support the correlated subquery, and consider rewriting the query to use an INNER JOIN with DISTINCT or a semi-join to avoid the correlated subquery. Also, ensure an index on users.id is present (it is the primary key, so it exists) but the planner may still scan if the subquery is expensive; using a JOIN with a derived table or EXISTS with proper indexes will help."
+        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions."
       }
     },
     {
       "test_case_id": "TC-07",
       "test_case_name": "correlated_exists_vs_indexed_join",
       "agent_id": "IndexArchitect",
-      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"users\",\n    \"detail\": \"The outer query scans the entire users table (SCAN u) without using an index, which is inefficient especially if the table is large. The ORDER BY u.id could benefit from an index on users.id, but the scan still occurs because the query planner chose to scan all rows to evaluate the EXISTS subquery.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"orders\",\n    \"detail\": \"The EXISTS subquery is correlated to the outer query (o.user_id = u.id) and performs a full table scan (SCAN o) for each user row. This results in O(N*M) complexity where N is the number of users and M is the number of orders. The lack of an index on orders.user_id, orders.status, orders.amount, and orders.order_date forces a full scan for each user.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The subquery joins on o.user_id = u.id but there is no index on orders.user_id. This makes the correlated subquery perform a full table scan for each user, which is a classic unindexed join bottleneck.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"o\",\n    \"detail\": \"Sequential scan on o table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
       "tool_called": "DatabaseSandbox.apply_index",
       "tool_arguments": {
         "db_path": "sandbox_TC-07.db",
         "recommended_indexes": [
-          "CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);",
-          "CREATE INDEX idx_users_id ON users (id);",
-          "CREATE INDEX idx_orders_status_amount_date ON orders (status, amount, order_date);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);"
         ]
       },
       "tool_output": {
         "applied_indexes": [
-          "CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);",
-          "CREATE INDEX idx_users_id ON users (id);",
-          "CREATE INDEX idx_orders_status_amount_date ON orders (status, amount, order_date);"
+          "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
@@ -355,10 +322,10 @@
           {
             "id": 11,
             "parent_id": 7,
-            "detail": "SEARCH o USING COVERING INDEX idx_orders_user_status_amount_date (user_id=? AND status=? AND amount>?)",
+            "detail": "SEARCH o USING COVERING INDEX idx_orders_date_amt_user (order_date>?)",
             "operation_type": "SEARCH",
             "table": "o",
-            "index": "idx_orders_user_status_amount_date",
+            "index": "idx_orders_date_amt_user",
             "is_scan": false,
             "is_search": true,
             "uses_temp_btree": false,
@@ -371,42 +338,32 @@
         "recommended_indexes": [
           {
             "table": "orders",
-            "ddl": "CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);",
-            "purpose": "This composite index supports the correlated subquery by allowing a quick lookup of orders for each user with the given status, amount threshold, and date range. It eliminates the full table scan on orders for each user, turning the EXISTS check into a fast index range scan."
-          },
-          {
-            "table": "users",
-            "ddl": "CREATE INDEX idx_users_id ON users (id);",
-            "purpose": "Although users.id is the primary key and already indexed, this index is redundant but included to emphasize that the outer query's ORDER BY u.id can be satisfied by the primary key index. However, the main bottleneck is the subquery; this index is not strictly necessary but ensures the ORDER BY is efficient if the planner uses it."
-          },
-          {
-            "table": "orders",
-            "ddl": "CREATE INDEX idx_orders_status_amount_date ON orders (status, amount, order_date);",
-            "purpose": "This index can be used if the query planner decides to filter orders by status and amount before joining to users, potentially reducing the number of rows scanned. It provides an alternative access path that might be beneficial depending on the data distribution and query plan."
+            "ddl": "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);",
+            "purpose": "Composite covering index for order date and amount ranges."
           }
         ],
-        "rationale": "The primary bottleneck is the correlated subquery on orders, which lacks an index on the join column (user_id) and the filter columns (status, amount, order_date). The most impactful index is a composite covering index on orders that includes all columns used in the WHERE clause of the subquery, ordered to allow efficient equality on user_id and status, then range on amount and order_date. This converts the per-user full table scan into a quick index lookup. The users table scan is less critical because the primary key index already supports ORDER BY, but the main cost is the subquery. The additional index on orders (status, amount, order_date) provides flexibility for the optimizer to choose a different join order or filtering strategy, potentially improving performance further."
+        "rationale": "Created composite covering indexes matching query join and filter columns."
       }
     },
     {
       "test_case_id": "TC-07",
       "test_case_name": "correlated_exists_vs_indexed_join",
       "agent_id": "Developer",
-      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"users\",\n    \"detail\": \"The outer query scans the entire users table (SCAN u) without using an index, which is inefficient especially if the table is large. The ORDER BY u.id could benefit from an index on users.id, but the scan still occurs because the query planner chose to scan all rows to evaluate the EXISTS subquery.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"orders\",\n    \"detail\": \"The EXISTS subquery is correlated to the outer query (o.user_id = u.id) and performs a full table scan (SCAN o) for each user row. This results in O(N*M) complexity where N is the number of users and M is the number of orders. The lack of an index on orders.user_id, orders.status, orders.amount, and orders.order_date forces a full scan for each user.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"UNINDEXED_JOIN\",\n    \"table\": \"orders\",\n    \"detail\": \"The subquery joins on o.user_id = u.id but there is no index on orders.user_id. This makes the correlated subquery perform a full table scan for each user, which is a classic unindexed join bottleneck.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_orders_user_status_amount_date ON orders (user_id, status, amount, order_date);\",\n  \"CREATE INDEX idx_users_id ON users (id);\",\n  \"CREATE INDEX idx_orders_status_amount_date ON orders (status, amount, order_date);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"o\",\n    \"detail\": \"Sequential scan on o table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
       "tool_called": "DatabaseSandbox.verify",
       "tool_arguments": {
         "db_path": "sandbox_TC-07.db",
         "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;",
-        "optimized_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = 'completed' AND o.amount > 750.0 AND o.order_date >= '2025-01-01') ORDER BY u.id ASC LIMIT 100;",
+        "optimized_query": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nWHERE EXISTS (\n    SELECT 1 FROM orders o\n    WHERE o.user_id = u.id\n      AND o.status = 'completed'\n      AND o.amount > 750.0\n      AND o.order_date >= '2025-01-01 00:00:00'\n)\nORDER BY u.id ASC\nLIMIT 100;",
         "timeout_sec": 10.0
       },
       "tool_output": {
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (100 rows).",
-        "original_time_ms": 2.56,
-        "optimized_time_ms": 1.873,
-        "speedup_ratio": 1.37,
+        "original_time_ms": 84.666,
+        "optimized_time_ms": 84.568,
+        "speedup_ratio": 1.0,
         "original_row_count": 100,
         "optimized_row_count": 100,
         "error_details": null,
@@ -414,13 +371,12 @@
       },
       "retries_triggered": 0,
       "llm_output": {
-        "rewritten_sql": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = 'completed' AND o.amount > 750.0 AND o.order_date >= '2025-01-01') ORDER BY u.id ASC LIMIT 100;",
+        "rewritten_sql": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nWHERE EXISTS (\n    SELECT 1 FROM orders o\n    WHERE o.user_id = u.id\n      AND o.status = 'completed'\n      AND o.amount > 750.0\n      AND o.order_date >= '2025-01-01 00:00:00'\n)\nORDER BY u.id ASC\nLIMIT 100;",
         "applied_techniques": [
-          "Added composite indexes to support the correlated subquery and ORDER BY",
-          "Converted date string to SARGable range predicate (already SARGable)",
-          "Preserved original query structure to maintain semantics"
+          "SARGable Date Comparison",
+          "Indexed EXISTS Scan"
         ],
-        "rationale": "The original query is already well-structured for SQLite. The main bottleneck is the lack of indexes. The applied indexes (idx_orders_user_status_amount_date and idx_orders_status_amount_date) allow the correlated subquery to use an index seek on orders.user_id, status, amount, and order_date, avoiding full table scans. The index on users.id supports the ORDER BY u.id. No query rewrite is needed because the EXISTS subquery is already efficient with proper indexing. The date predicate '2025-01-01' is already SARGable as a string comparison. The query remains unchanged to preserve exact output semantics."
+        "rationale": "Applied targeted relational rewrites and SARGable range predicates."
       }
     }
   ]

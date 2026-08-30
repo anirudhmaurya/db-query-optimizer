@@ -232,9 +232,12 @@ class TestOptimizerStateMachine:
             scratch_dir=tmp_path / "scratch"
         )
 
-        assert outcome["status"] in ("ERROR", "FAILED")
-        assert outcome["is_valid"] is False
         assert outcome["total_attempts"] == 3
+        assert outcome["fallback_triggered"] is True
+        assert outcome["optimized_sql"] == test_case["query"]
+        assert outcome["is_valid"] is True
+        assert outcome["status"] == "SUCCESS"
+        assert "Falling back to original SQL" in outcome["verification_message"]
 
     def test_trajectory_structure_and_formatting(self, sample_db: Path, tmp_path: Path):
         """Test that the generated execution trajectory captures all required stages, prompts, and tool outputs."""

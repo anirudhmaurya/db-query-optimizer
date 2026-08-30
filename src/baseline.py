@@ -329,7 +329,7 @@ class MockProvider(LLMProvider):
 
     def complete(self, prompt: str) -> str:
         # Basic rule-based zero-shot rewrites for standard query optimization patterns
-        if "strftime('%Y', created_at) = '2025'" in prompt:
+        if "strftime('%Y', created_at) = '2025'" in prompt or "strftime('%y', created_at)" in prompt.lower():
             # SARGable date rewrite
             return (
                 "```sql\n"
@@ -342,7 +342,7 @@ class MockProvider(LLMProvider):
                 "LIMIT 25;\n"
                 "```"
             )
-        elif "AVG(e2.salary)" in prompt and "employees" in prompt:
+        elif "AVG(e2.salary)" in prompt or "AVG(e3.salary)" in prompt:
             # Window function rewrite
             return (
                 "```sql\n"
@@ -355,6 +355,18 @@ class MockProvider(LLMProvider):
                 "FROM dept_stats\n"
                 "WHERE salary > (dept_avg_salary * 1.15)\n"
                 "ORDER BY salary DESC;\n"
+                "```"
+            )
+        elif "o.id is null" in prompt.lower() or "orders.id is null" in prompt.lower():
+            # The NULL Trap
+            return (
+                "```sql\n"
+                "SELECT u.id, u.name, u.region, u.signup_date\n"
+                "FROM users u\n"
+                "LEFT JOIN orders o ON u.id = o.user_id\n"
+                "WHERE o.id IS NULL\n"
+                "ORDER BY u.id ASC\n"
+                "LIMIT 50;\n"
                 "```"
             )
         else:

@@ -1,0 +1,345 @@
+{
+  "test_case_id": "TC-06",
+  "test_case_name": "null_trap_users_without_orders",
+  "anti_pattern": "The NULL Trap: Unindexed LEFT JOIN filtering for NULL right-table keys",
+  "model": "mock-orchestrator",
+  "start_time": "2026-08-30T12:59:11Z",
+  "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;",
+  "stages": {
+    "profiler": {
+      "initial_explain_plan": [
+        {
+          "id": 5,
+          "parent_id": 0,
+          "detail": "SCAN u",
+          "operation_type": "SCAN",
+          "table": "u",
+          "index": null,
+          "is_scan": true,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 9,
+          "parent_id": 0,
+          "detail": "BLOOM FILTER ON o (user_id=?)",
+          "operation_type": "OTHER",
+          "table": null,
+          "index": null,
+          "is_scan": false,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 18,
+          "parent_id": 0,
+          "detail": "SEARCH o USING AUTOMATIC COVERING INDEX (user_id=?) LEFT-JOIN",
+          "operation_type": "SEARCH",
+          "table": "o",
+          "index": null,
+          "is_scan": false,
+          "is_search": true,
+          "uses_temp_btree": false,
+          "uses_covering_index": true
+        }
+      ],
+      "profiler_report": {
+        "identified_bottlenecks": [
+          {
+            "type": "FULL_TABLE_SCAN",
+            "table": "u",
+            "detail": "Sequential scan on u table across full dataset.",
+            "severity": "HIGH"
+          }
+        ],
+        "critical_tables": [
+          "u"
+        ],
+        "has_temp_btree_sort": false,
+        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
+        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 5,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN u\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 9,\n    \"parent_id\": 0,\n    \"detail\": \"BLOOM FILTER ON o (user_id=?)\",\n    \"operation_type\": \"OTHER\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 18,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH o USING AUTOMATIC COVERING INDEX (user_id=?) LEFT-JOIN\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"o\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": true\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
+      },
+      "elapsed_sec": 0.0
+    },
+    "index_architect": {
+      "architect_report": {
+        "recommended_indexes": [
+          {
+            "table": "orders",
+            "ddl": "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);",
+            "purpose": "Index foreign key user_id on orders to accelerate LEFT JOIN anti-join null checks."
+          }
+        ],
+        "rationale": "Created composite covering indexes matching query join and filter columns.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "applied_indexes": [
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
+        ],
+        "failed_indexes": [],
+        "post_index_plan": [
+          {
+            "id": 5,
+            "parent_id": 0,
+            "detail": "SCAN u",
+            "operation_type": "SCAN",
+            "table": "u",
+            "index": null,
+            "is_scan": true,
+            "is_search": false,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 7,
+            "parent_id": 0,
+            "detail": "SEARCH o USING COVERING INDEX idx_orders_user_id (user_id=?) LEFT-JOIN",
+            "operation_type": "SEARCH",
+            "table": "o",
+            "index": "idx_orders_user_id",
+            "is_scan": false,
+            "is_search": true,
+            "uses_temp_btree": false,
+            "uses_covering_index": true
+          }
+        ],
+        "scans_remaining": [
+          "u"
+        ]
+      },
+      "applied_indexes": [
+        "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
+      ],
+      "elapsed_sec": 0.007
+    },
+    "developer_verifier_loop": {
+      "total_attempts": 1,
+      "succeeded": true,
+      "fallback_triggered": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "developer_report": {
+            "rewritten_sql": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nWHERE NOT EXISTS (\n    SELECT 1 FROM orders o\n    WHERE o.user_id = u.id\n)\nORDER BY u.id ASC\nLIMIT 50;",
+            "applied_techniques": [
+              "NOT EXISTS Anti-Join Optimization",
+              "Index-Supported Lookup"
+            ],
+            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
+          },
+          "verification_report": {
+            "status": "PASSED",
+            "is_equivalent": true,
+            "error_stage": null,
+            "error_details": null,
+            "feedback_for_developer": null,
+            "original_time_ms": 0.394,
+            "optimized_time_ms": 0.311,
+            "speedup_ratio": 1.27,
+            "original_row_count": 50,
+            "optimized_row_count": 50,
+            "verification_message": "Result sets match perfectly as multiset (50 rows).",
+            "post_explain_plan": [
+              {
+                "id": 4,
+                "parent_id": 0,
+                "detail": "SCAN u",
+                "operation_type": "SCAN",
+                "table": "u",
+                "index": null,
+                "is_scan": true,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 7,
+                "parent_id": 0,
+                "detail": "CORRELATED SCALAR SUBQUERY 1",
+                "operation_type": "SUBQUERY",
+                "table": null,
+                "index": null,
+                "is_scan": false,
+                "is_search": false,
+                "uses_temp_btree": false,
+                "uses_covering_index": false
+              },
+              {
+                "id": 11,
+                "parent_id": 7,
+                "detail": "SEARCH o USING COVERING INDEX idx_orders_user_id (user_id=?)",
+                "operation_type": "SEARCH",
+                "table": "o",
+                "index": "idx_orders_user_id",
+                "is_scan": false,
+                "is_search": true,
+                "uses_temp_btree": false,
+                "uses_covering_index": true
+              }
+            ]
+          },
+          "elapsed_sec": 0.001
+        }
+      ]
+    }
+  },
+  "execution_steps": [
+    {
+      "test_case_id": "TC-06",
+      "test_case_name": "null_trap_users_without_orders",
+      "agent_id": "Profiler",
+      "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 5,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN u\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 9,\n    \"parent_id\": 0,\n    \"detail\": \"BLOOM FILTER ON o (user_id=?)\",\n    \"operation_type\": \"OTHER\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 18,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH o USING AUTOMATIC COVERING INDEX (user_id=?) LEFT-JOIN\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"o\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": true\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
+      "tool_called": "DatabaseSandbox.get_explain_plan",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-06.db",
+        "query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;"
+      },
+      "tool_output": [
+        {
+          "id": 5,
+          "parent_id": 0,
+          "detail": "SCAN u",
+          "operation_type": "SCAN",
+          "table": "u",
+          "index": null,
+          "is_scan": true,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 9,
+          "parent_id": 0,
+          "detail": "BLOOM FILTER ON o (user_id=?)",
+          "operation_type": "OTHER",
+          "table": null,
+          "index": null,
+          "is_scan": false,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 18,
+          "parent_id": 0,
+          "detail": "SEARCH o USING AUTOMATIC COVERING INDEX (user_id=?) LEFT-JOIN",
+          "operation_type": "SEARCH",
+          "table": "o",
+          "index": null,
+          "is_scan": false,
+          "is_search": true,
+          "uses_temp_btree": false,
+          "uses_covering_index": true
+        }
+      ],
+      "retries_triggered": 0,
+      "llm_output": {
+        "identified_bottlenecks": [
+          {
+            "type": "FULL_TABLE_SCAN",
+            "table": "u",
+            "detail": "Sequential scan on u table across full dataset.",
+            "severity": "HIGH"
+          }
+        ],
+        "critical_tables": [
+          "u"
+        ],
+        "has_temp_btree_sort": false,
+        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions."
+      }
+    },
+    {
+      "test_case_id": "TC-06",
+      "test_case_name": "null_trap_users_without_orders",
+      "agent_id": "IndexArchitect",
+      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+      "tool_called": "DatabaseSandbox.apply_index",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-06.db",
+        "recommended_indexes": [
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
+        ]
+      },
+      "tool_output": {
+        "applied_indexes": [
+          "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
+        ],
+        "failed_indexes": [],
+        "post_index_plan": [
+          {
+            "id": 5,
+            "parent_id": 0,
+            "detail": "SCAN u",
+            "operation_type": "SCAN",
+            "table": "u",
+            "index": null,
+            "is_scan": true,
+            "is_search": false,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 7,
+            "parent_id": 0,
+            "detail": "SEARCH o USING COVERING INDEX idx_orders_user_id (user_id=?) LEFT-JOIN",
+            "operation_type": "SEARCH",
+            "table": "o",
+            "index": "idx_orders_user_id",
+            "is_scan": false,
+            "is_search": true,
+            "uses_temp_btree": false,
+            "uses_covering_index": true
+          }
+        ]
+      },
+      "retries_triggered": 0,
+      "llm_output": {
+        "recommended_indexes": [
+          {
+            "table": "orders",
+            "ddl": "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);",
+            "purpose": "Index foreign key user_id on orders to accelerate LEFT JOIN anti-join null checks."
+          }
+        ],
+        "rationale": "Created composite covering indexes matching query join and filter columns."
+      }
+    },
+    {
+      "test_case_id": "TC-06",
+      "test_case_name": "null_trap_users_without_orders",
+      "agent_id": "Developer",
+      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"u\",\n    \"detail\": \"Sequential scan on u table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+      "tool_called": "DatabaseSandbox.verify",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-06.db",
+        "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL ORDER BY u.id ASC LIMIT 50;",
+        "optimized_query": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nWHERE NOT EXISTS (\n    SELECT 1 FROM orders o\n    WHERE o.user_id = u.id\n)\nORDER BY u.id ASC\nLIMIT 50;",
+        "timeout_sec": 10.0
+      },
+      "tool_output": {
+        "status": "PASSED",
+        "is_valid": null,
+        "verification_message": "Result sets match perfectly as multiset (50 rows).",
+        "original_time_ms": 0.394,
+        "optimized_time_ms": 0.311,
+        "speedup_ratio": 1.27,
+        "original_row_count": 50,
+        "optimized_row_count": 50,
+        "error_details": null,
+        "feedback_for_developer": null
+      },
+      "retries_triggered": 0,
+      "llm_output": {
+        "rewritten_sql": "SELECT u.id, u.name, u.region, u.signup_date\nFROM users u\nWHERE NOT EXISTS (\n    SELECT 1 FROM orders o\n    WHERE o.user_id = u.id\n)\nORDER BY u.id ASC\nLIMIT 50;",
+        "applied_techniques": [
+          "NOT EXISTS Anti-Join Optimization",
+          "Index-Supported Lookup"
+        ],
+        "rationale": "Applied targeted relational rewrites and SARGable range predicates."
+      }
+    }
+  ]
+}

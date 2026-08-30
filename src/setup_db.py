@@ -274,9 +274,12 @@ def populate_data(
 
     # 4. Orders
     log_func(f"Populating orders ({config.num_orders:,} records)...")
+    # Reserve top 15% of users (e.g. user_id > 8,500) to NEVER have orders.
+    # This guarantees at least 1,500 users with ZERO orders to test The NULL Trap!
+    order_user_pool_max = int(config.num_users * 0.85)
     order_records: List[Tuple[int, int, float, str, str]] = []
     for i in range(1, config.num_orders + 1):
-        user_id = rng.randint(1, config.num_users)
+        user_id = rng.randint(1, order_user_pool_max)
         amount = round(rng.uniform(15.0, 1500.0), 2)
         status = rng.choices(
             ORDER_STATUSES,
@@ -379,9 +382,9 @@ def get_benchmark_test_cases() -> List[Dict[str, Any]]:
         },
         {
             "id": "TC-02",
-            "name": "non_sargable_date_function",
-            "anti_pattern": "Non-SARGable date functions in WHERE filter",
-            "description": "Uses strftime('%Y', created_at) = '2025' in predicate, preventing B-Tree range index scans on timestamp columns.",
+            "name": "non_sargable_date_trap",
+            "anti_pattern": "The Non-SARGable Trap: Date formatting function strftime() in WHERE clause",
+            "description": "Filters events by extracting the year using strftime('%Y', created_at) = '2025', preventing SQLite from utilizing B-Tree range indexes on the created_at column.",
             "tables_involved": ["events"],
             "query": (
                 "SELECT user_id, event_type, COUNT(*) AS event_count "
@@ -397,15 +400,19 @@ def get_benchmark_test_cases() -> List[Dict[str, Any]]:
         },
         {
             "id": "TC-03",
-            "name": "correlated_subquery_salary_comparison",
-            "anti_pattern": "Correlated subqueries calculating group averages instead of Window Functions / CTEs",
-            "description": "Calculates department average salary inside a correlated subquery for both SELECT projection and WHERE filter on each employee row (O(N^2) evaluation).",
+            "name": "correlated_math_trap_department_salary",
+            "anti_pattern": "The Correlated Math Trap: Quadratic correlated subquery calculating department average salary in WHERE clause",
+            "description": "Finds employees who make more than their department's average salary using a correlated subquery in the WHERE clause, causing O(N^2) repeated scans across departments.",
             "tables_involved": ["employees", "departments"],
             "query": (
                 "SELECT e.id, e.name, e.department_id, e.salary, "
                 "       (SELECT AVG(e2.salary) FROM employees e2 WHERE e2.department_id = e.department_id) AS dept_avg_salary "
                 "FROM employees e "
-                "WHERE e.salary > (SELECT AVG(e3.salary) * 1.15 FROM employees e3 WHERE e3.department_id = e.department_id) "
+                "WHERE e.salary > ( "
+                "    SELECT AVG(e3.salary) * 1.15 "
+                "    FROM employees e3 "
+                "    WHERE e3.department_id = e.department_id "
+                ") "
                 "ORDER BY e.salary DESC;"
             ),
             "expected_anti_pattern_explanation": "Executes the inner department aggregate twice per employee row, leading to 10,000+ repetitive table scans instead of a single grouping pass.",
@@ -454,22 +461,20 @@ def get_benchmark_test_cases() -> List[Dict[str, Any]]:
         },
         {
             "id": "TC-06",
-            "name": "non_sargable_string_and_arithmetic_transforms",
-            "anti_pattern": "Non-SARGable string transformations and arithmetic expressions in predicate",
-            "description": "Applies UPPER(region) and arithmetic expressions on year extractions in the WHERE clause.",
+            "name": "null_trap_users_without_orders",
+            "anti_pattern": "The NULL Trap: Unindexed LEFT JOIN filtering for NULL right-table keys",
+            "description": "Finds users who have never placed an order using a LEFT JOIN on orders and WHERE orders.id IS NULL. Basic LLMs often rewrite this to an INNER JOIN for speed, which returns 0 rows and fails accuracy.",
             "tables_involved": ["users", "orders"],
             "query": (
-                "SELECT u.id, u.name, u.region, COUNT(o.id) AS order_count, SUM(o.amount) AS total_spent "
+                "SELECT u.id, u.name, u.region, u.signup_date "
                 "FROM users u "
                 "LEFT JOIN orders o ON u.id = o.user_id "
-                "WHERE UPPER(u.region) = 'EUROPE' "
-                "  AND (CAST(strftime('%Y', u.signup_date) AS INTEGER) - 2020) >= 4 "
-                "GROUP BY u.id, u.name, u.region "
-                "HAVING COUNT(o.id) > 2 "
-                "ORDER BY total_spent DESC;"
+                "WHERE o.id IS NULL "
+                "ORDER BY u.id ASC "
+                "LIMIT 50;"
             ),
-            "expected_anti_pattern_explanation": "Function calls `UPPER(u.region)` and `CAST(strftime(...) AS INTEGER) - 2020` invalidate existing B-Tree index lookup mechanisms.",
-            "optimization_hint": "Use case-insensitive collations (e.g. `COLLATE NOCASE`) and rewrite date arithmetic into direct range comparisons: `u.signup_date >= '2024-01-01'`."
+            "expected_anti_pattern_explanation": "Performs full outer join scan without an index on orders.user_id, evaluating join matches before filtering for NULL right keys.",
+            "optimization_hint": "Create index on `orders(user_id)` or rewrite to `NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)` with index support."
         },
         {
             "id": "TC-07",

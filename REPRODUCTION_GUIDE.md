@@ -85,7 +85,11 @@ Runs the complete test suite verifying tool integrity, sandbox rollbacks, and re
 pytest -v
 ```
 
-### Launch Interactive Streamlit UI (Optional)
+### Launch Interactive Streamlit Dashboard (Optional)
+Launch the 5-page visual dashboard (Live Optimizer, Benchmark Suite, Trajectory Explorer, and Performance Analytics):
+
 ```bash
 streamlit run streamlit_app/app.py
 ```
+* **Local URL:** `http://localhost:8501`
+* Supports live switching between `deepseek`, `gemini`, `openai`, `anthropic`, and offline `mock` mode directly from the sidebar.

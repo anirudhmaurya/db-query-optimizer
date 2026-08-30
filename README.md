@@ -106,6 +106,13 @@ For instantaneous offline testing without API keys, append `--mock` to any comma
 python verify_submission.py --mock
 ```
 
+### 🌐 Interactive Streamlit Dashboard
+To launch the interactive visual dashboard (Single-Query Optimizer, Live Benchmark Runner, Agent Trajectory Viewer, and Performance Analytics):
+```bash
+streamlit run streamlit_app/app.py
+```
+Open your browser at **http://localhost:8501**.
+
 ---
 
 ## 4. Improvement Changelog

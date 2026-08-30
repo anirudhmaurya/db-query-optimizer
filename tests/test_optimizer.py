@@ -296,6 +296,27 @@ class TestOptimizerStateMachine:
         assert "verification_report" in first_attempt
         assert first_attempt["verification_report"]["status"] == "PASSED"
 
+        # Check execution_steps array
+        assert "execution_steps" in traj_data
+        steps = traj_data["execution_steps"]
+        assert len(steps) >= 3
+        profiler_step = steps[0]
+        assert profiler_step["agent_id"] == "Profiler"
+        assert profiler_step["tool_called"] == "DatabaseSandbox.get_explain_plan"
+        assert "tool_arguments" in profiler_step
+        assert "tool_output" in profiler_step
+        assert profiler_step["retries_triggered"] == 0
+
+        architect_step = steps[1]
+        assert architect_step["agent_id"] == "IndexArchitect"
+        assert architect_step["tool_called"] == "DatabaseSandbox.apply_index"
+
+        developer_step = steps[2]
+        assert developer_step["agent_id"] == "Developer"
+        assert developer_step["tool_called"] == "DatabaseSandbox.verify"
+        assert "tool_output" in developer_step
+        assert developer_step["retries_triggered"] == 0
+
     def test_orchestrator_deepseek_provider_init(self, monkeypatch):
         """Test that OptimizerOrchestrator initializes DeepSeek provider with default model."""
         monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-sk-abc")

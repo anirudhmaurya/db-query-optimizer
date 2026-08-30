@@ -2,8 +2,8 @@
   "test_case_id": "TC-05",
   "test_case_name": "heavy_aggregation_on_unindexed_predicate",
   "anti_pattern": "Heavy aggregations on unindexed filter predicates",
-  "model": "mock-orchestrator",
-  "start_time": "2026-08-30T12:16:00Z",
+  "model": "deepseek-chat",
+  "start_time": "2026-08-30T12:23:26Z",
   "original_query": "SELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
   "stages": {
     "profiler": {
@@ -61,56 +61,77 @@
         "identified_bottlenecks": [
           {
             "type": "FULL_TABLE_SCAN",
-            "table": "o",
-            "detail": "Sequential scan on o table across full dataset.",
+            "table": "orders",
+            "detail": "The query scans the entire orders table (SCAN o) because there is no index on the order_date or amount columns. This is inefficient for large tables, especially when filtering by amount and date.",
             "severity": "HIGH"
           },
           {
             "type": "TEMP_BTREE_SORT",
             "table": null,
-            "detail": "Temporary B-Tree created for sorting or grouping.",
+            "detail": "The GROUP BY operation uses a temporary B-tree to sort and group the results. This is required because there is no index supporting the grouping columns (u.region, o.status). This adds overhead and memory usage.",
+            "severity": "MEDIUM"
+          },
+          {
+            "type": "TEMP_BTREE_SORT",
+            "table": null,
+            "detail": "The ORDER BY total_revenue DESC also uses a temporary B-tree to sort the final result set. This is an additional sort operation that could be avoided if the query were optimized differently.",
             "severity": "MEDIUM"
           }
         ],
         "critical_tables": [
-          "o"
+          "orders",
+          "users"
         ],
         "has_temp_btree_sort": true,
-        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
-        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 8,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN o\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"o\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 15,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH u USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 18,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR GROUP BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 70,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
+        "optimization_strategy": "Create a composite index on orders(order_date, amount) to filter efficiently, and consider an index on orders(user_id) to speed up the join. Also, consider a covering index on orders(user_id, amount, order_date, status) to avoid accessing the table for the join and aggregation. For the GROUP BY, an index on users(region) and orders(status) might help, but the main bottleneck is the full scan on orders.",
+        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 8,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN o\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"o\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 15,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH u USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 18,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR GROUP BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 70,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
+        "raw_response": "{\n  \"identified_bottlenecks\": [\n    {\n      \"type\": \"FULL_TABLE_SCAN\",\n      \"table\": \"orders\",\n      \"detail\": \"The query scans the entire orders table (SCAN o) because there is no index on the order_date or amount columns. This is inefficient for large tables, especially when filtering by amount and date.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"TEMP_BTREE_SORT\",\n      \"table\": null,\n      \"detail\": \"The GROUP BY operation uses a temporary B-tree to sort and group the results. This is required because there is no index supporting the grouping columns (u.region, o.status). This adds overhead and memory usage.\",\n      \"severity\": \"MEDIUM\"\n    },\n    {\n      \"type\": \"TEMP_BTREE_SORT\",\n      \"table\": null,\n      \"detail\": \"The ORDER BY total_revenue DESC also uses a temporary B-tree to sort the final result set. This is an additional sort operation that could be avoided if the query were optimized differently.\",\n      \"severity\": \"MEDIUM\"\n    }\n  ],\n  \"critical_tables\": [\"orders\", \"users\"],\n  \"has_temp_btree_sort\": true,\n  \"optimization_strategy\": \"Create a composite index on orders(order_date, amount) to filter efficiently, and consider an index on orders(user_id) to speed up the join. Also, consider a covering index on orders(user_id, amount, order_date, status) to avoid accessing the table for the join and aggregation. For the GROUP BY, an index on users(region) and orders(status) might help, but the main bottleneck is the full scan on orders.\"\n}"
       },
-      "elapsed_sec": 0.0
+      "elapsed_sec": 3.318
     },
     "index_architect": {
       "architect_report": {
         "recommended_indexes": [
           {
             "table": "orders",
-            "ddl": "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);",
-            "purpose": "Composite covering index for order date and amount ranges."
+            "ddl": "CREATE INDEX idx_orders_amount_date ON orders (amount, order_date);",
+            "purpose": "This composite index directly supports the WHERE clause filtering on amount >= 200.0 and order_date >= '2024-01-01'. It allows the database to perform an index range scan instead of a full table scan, dramatically reducing the number of rows read."
+          },
+          {
+            "table": "orders",
+            "ddl": "CREATE INDEX idx_orders_user_amount_date ON orders (user_id, amount, order_date);",
+            "purpose": "This covering index includes user_id for the JOIN to users, and also amount and order_date for filtering. It enables the database to retrieve all necessary columns (user_id, amount, order_date) directly from the index, avoiding table lookups and further reducing I/O. It also helps with the GROUP BY if the optimizer can use it for ordering."
+          },
+          {
+            "table": "users",
+            "ddl": "CREATE INDEX idx_users_region_id ON users (region, id);",
+            "purpose": "This covering index on users supports the GROUP BY on u.region and the JOIN on u.id. It allows the database to scan only the needed columns (region and id) for the join and grouping, avoiding a full table scan on users and reducing the temporary B-tree sort overhead for grouping."
           }
         ],
-        "rationale": "Created composite covering indexes matching query join and filter columns.",
-        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"o\",\n    \"detail\": \"Sequential scan on o table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "rationale": "The primary bottleneck is the full table scan on orders. The first index on (amount, order_date) is the most critical to eliminate that scan. The second index on (user_id, amount, order_date) is a covering index that also supports the join and filtering, potentially allowing index-only scans. The third index on users (region, id) is a covering index for the join and grouping, reducing the need for a temporary B-tree for GROUP BY. Together, these indexes convert the expensive sequential scans and sorts into efficient B-Tree lookups and index-ordered scans, significantly improving query performance.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"orders\",\n    \"detail\": \"The query scans the entire orders table (SCAN o) because there is no index on the order_date or amount columns. This is inefficient for large tables, especially when filtering by amount and date.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The GROUP BY operation uses a temporary B-tree to sort and group the results. This is required because there is no index supporting the grouping columns (u.region, o.status). This adds overhead and memory usage.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The ORDER BY total_revenue DESC also uses a temporary B-tree to sort the final result set. This is an additional sort operation that could be avoided if the query were optimized differently.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "raw_response": "{\n  \"recommended_indexes\": [\n    {\n      \"table\": \"orders\",\n      \"ddl\": \"CREATE INDEX idx_orders_amount_date ON orders (amount, order_date);\",\n      \"purpose\": \"This composite index directly supports the WHERE clause filtering on amount >= 200.0 and order_date >= '2024-01-01'. It allows the database to perform an index range scan instead of a full table scan, dramatically reducing the number of rows read.\"\n    },\n    {\n      \"table\": \"orders\",\n      \"ddl\": \"CREATE INDEX idx_orders_user_amount_date ON orders (user_id, amount, order_date);\",\n      \"purpose\": \"This covering index includes user_id for the JOIN to users, and also amount and order_date for filtering. It enables the database to retrieve all necessary columns (user_id, amount, order_date) directly from the index, avoiding table lookups and further reducing I/O. It also helps with the GROUP BY if the optimizer can use it for ordering.\"\n    },\n    {\n      \"table\": \"users\",\n      \"ddl\": \"CREATE INDEX idx_users_region_id ON users (region, id);\",\n      \"purpose\": \"This covering index on users supports the GROUP BY on u.region and the JOIN on u.id. It allows the database to scan only the needed columns (region and id) for the join and grouping, avoiding a full table scan on users and reducing the temporary B-tree sort overhead for grouping.\"\n    }\n  ],\n  \"rationale\": \"The primary bottleneck is the full table scan on orders. The first index on (amount, order_date) is the most critical to eliminate that scan. The second index on (user_id, amount, order_date) is a covering index that also supports the join and filtering, potentially allowing index-only scans. The third index on users (region, id) is a covering index for the join and grouping, reducing the need for a temporary B-tree for GROUP BY. Together, these indexes convert the expensive sequential scans and sorts into efficient B-Tree lookups and index-ordered scans, significantly improving query performance.\"\n}",
         "applied_indexes": [
-          "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);"
+          "CREATE INDEX idx_orders_amount_date ON orders (amount, order_date);",
+          "CREATE INDEX idx_orders_user_amount_date ON orders (user_id, amount, order_date);",
+          "CREATE INDEX idx_users_region_id ON users (region, id);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
-            "id": 8,
+            "id": 9,
             "parent_id": 0,
-            "detail": "SEARCH o USING COVERING INDEX idx_orders_date_amt_user (order_date>?)",
+            "detail": "SEARCH o USING INDEX idx_orders_amount_date (amount>?)",
             "operation_type": "SEARCH",
             "table": "o",
-            "index": "idx_orders_date_amt_user",
+            "index": "idx_orders_amount_date",
             "is_scan": false,
             "is_search": true,
             "uses_temp_btree": false,
-            "uses_covering_index": true
+            "uses_covering_index": false
           },
           {
-            "id": 14,
+            "id": 15,
             "parent_id": 0,
             "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
             "operation_type": "SEARCH",
@@ -122,7 +143,7 @@
             "uses_covering_index": false
           },
           {
-            "id": 17,
+            "id": 18,
             "parent_id": 0,
             "detail": "USE TEMP B-TREE FOR GROUP BY",
             "operation_type": "TEMP_BTREE",
@@ -134,7 +155,7 @@
             "uses_covering_index": false
           },
           {
-            "id": 69,
+            "id": 70,
             "parent_id": 0,
             "detail": "USE TEMP B-TREE FOR ORDER BY",
             "operation_type": "TEMP_BTREE",
@@ -149,9 +170,11 @@
         "scans_remaining": []
       },
       "applied_indexes": [
-        "CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);"
+        "CREATE INDEX idx_orders_amount_date ON orders (amount, order_date);",
+        "CREATE INDEX idx_orders_user_amount_date ON orders (user_id, amount, order_date);",
+        "CREATE INDEX idx_users_region_id ON users (region, id);"
       ],
-      "elapsed_sec": 0.011
+      "elapsed_sec": 4.316
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -160,12 +183,15 @@
         {
           "attempt": 1,
           "developer_report": {
-            "rewritten_sql": "SELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
+            "rewritten_sql": "SELECT u.region, o.status, COUNT(o.id) AS total_orders, AVG(o.amount) AS avg_order_amount, SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0 AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
             "applied_techniques": [
-              "Covering Index Alignment"
+              "Index optimization",
+              "SARGable predicate",
+              "No query rewrite needed"
             ],
-            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"o\",\n    \"detail\": \"Sequential scan on o table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_orders_date_amt_user ON orders (order_date, amount, user_id, status);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
+            "rationale": "The original query is already well-structured with SARGable predicates (o.amount >= 200.0 and o.order_date >= '2024-01-01') and uses GROUP BY/HAVING/ORDER BY correctly. The main performance bottleneck is the lack of indexes. The applied indexes (idx_orders_amount_date, idx_orders_user_amount_date, idx_users_region_id) will allow SQLite to efficiently filter orders by amount and date, and to perform the join and grouping without full table scans. No query transformation is required; the query remains semantically identical.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"orders\",\n    \"detail\": \"The query scans the entire orders table (SCAN o) because there is no index on the order_date or amount columns. This is inefficient for large tables, especially when filtering by amount and date.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The GROUP BY operation uses a temporary B-tree to sort and group the results. This is required because there is no index supporting the grouping columns (u.region, o.status). This adds overhead and memory usage.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The ORDER BY total_revenue DESC also uses a temporary B-tree to sort the final result set. This is an additional sort operation that could be avoided if the query were optimized differently.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_orders_amount_date ON orders (amount, order_date);\",\n  \"CREATE INDEX idx_orders_user_amount_date ON orders (user_id, amount, order_date);\",\n  \"CREATE INDEX idx_users_region_id ON users (region, id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+            "raw_response": "{\n  \"rewritten_sql\": \"SELECT u.region, o.status, COUNT(o.id) AS total_orders, AVG(o.amount) AS avg_order_amount, SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0 AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;\",\n  \"applied_techniques\": [\"Index optimization\", \"SARGable predicate\", \"No query rewrite needed\"],\n  \"rationale\": \"The original query is already well-structured with SARGable predicates (o.amount >= 200.0 and o.order_date >= '2024-01-01') and uses GROUP BY/HAVING/ORDER BY correctly. The main performance bottleneck is the lack of indexes. The applied indexes (idx_orders_amount_date, idx_orders_user_amount_date, idx_users_region_id) will allow SQLite to efficiently filter orders by amount and date, and to perform the join and grouping without full table scans. No query transformation is required; the query remains semantically identical.\"\n}"
           },
           "verification_report": {
             "status": "PASSED",
@@ -173,27 +199,27 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 10.423,
-            "optimized_time_ms": 10.329,
-            "speedup_ratio": 1.01,
+            "original_time_ms": 33.414,
+            "optimized_time_ms": 21.132,
+            "speedup_ratio": 1.58,
             "original_row_count": 25,
             "optimized_row_count": 25,
             "verification_message": "Result sets match perfectly as multiset (25 rows).",
             "post_explain_plan": [
               {
-                "id": 8,
+                "id": 9,
                 "parent_id": 0,
-                "detail": "SEARCH o USING COVERING INDEX idx_orders_date_amt_user (order_date>?)",
+                "detail": "SEARCH o USING INDEX idx_orders_amount_date (amount>?)",
                 "operation_type": "SEARCH",
                 "table": "o",
-                "index": "idx_orders_date_amt_user",
+                "index": "idx_orders_amount_date",
                 "is_scan": false,
                 "is_search": true,
                 "uses_temp_btree": false,
-                "uses_covering_index": true
+                "uses_covering_index": false
               },
               {
-                "id": 14,
+                "id": 15,
                 "parent_id": 0,
                 "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
                 "operation_type": "SEARCH",
@@ -205,7 +231,7 @@
                 "uses_covering_index": false
               },
               {
-                "id": 17,
+                "id": 18,
                 "parent_id": 0,
                 "detail": "USE TEMP B-TREE FOR GROUP BY",
                 "operation_type": "TEMP_BTREE",
@@ -217,7 +243,7 @@
                 "uses_covering_index": false
               },
               {
-                "id": 69,
+                "id": 70,
                 "parent_id": 0,
                 "detail": "USE TEMP B-TREE FOR ORDER BY",
                 "operation_type": "TEMP_BTREE",
@@ -230,9 +256,230 @@
               }
             ]
           },
-          "elapsed_sec": 0.021
+          "elapsed_sec": 2.378
         }
       ]
     }
-  }
+  },
+  "execution_steps": [
+    {
+      "test_case_id": "TC-05",
+      "test_case_name": "heavy_aggregation_on_unindexed_predicate",
+      "agent_id": "Profiler",
+      "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 8,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN o\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"o\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 15,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH u USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 18,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR GROUP BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 70,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
+      "tool_called": "DatabaseSandbox.get_explain_plan",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-05.db",
+        "query": "SELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;"
+      },
+      "tool_output": [
+        {
+          "id": 8,
+          "parent_id": 0,
+          "detail": "SCAN o",
+          "operation_type": "SCAN",
+          "table": "o",
+          "index": null,
+          "is_scan": true,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 15,
+          "parent_id": 0,
+          "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
+          "operation_type": "SEARCH",
+          "table": "u",
+          "index": null,
+          "is_scan": false,
+          "is_search": true,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 18,
+          "parent_id": 0,
+          "detail": "USE TEMP B-TREE FOR GROUP BY",
+          "operation_type": "TEMP_BTREE",
+          "table": null,
+          "index": null,
+          "is_scan": false,
+          "is_search": false,
+          "uses_temp_btree": true,
+          "uses_covering_index": false
+        },
+        {
+          "id": 70,
+          "parent_id": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY",
+          "operation_type": "TEMP_BTREE",
+          "table": null,
+          "index": null,
+          "is_scan": false,
+          "is_search": false,
+          "uses_temp_btree": true,
+          "uses_covering_index": false
+        }
+      ],
+      "retries_triggered": 0,
+      "llm_output": {
+        "identified_bottlenecks": [
+          {
+            "type": "FULL_TABLE_SCAN",
+            "table": "orders",
+            "detail": "The query scans the entire orders table (SCAN o) because there is no index on the order_date or amount columns. This is inefficient for large tables, especially when filtering by amount and date.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "TEMP_BTREE_SORT",
+            "table": null,
+            "detail": "The GROUP BY operation uses a temporary B-tree to sort and group the results. This is required because there is no index supporting the grouping columns (u.region, o.status). This adds overhead and memory usage.",
+            "severity": "MEDIUM"
+          },
+          {
+            "type": "TEMP_BTREE_SORT",
+            "table": null,
+            "detail": "The ORDER BY total_revenue DESC also uses a temporary B-tree to sort the final result set. This is an additional sort operation that could be avoided if the query were optimized differently.",
+            "severity": "MEDIUM"
+          }
+        ],
+        "critical_tables": [
+          "orders",
+          "users"
+        ],
+        "has_temp_btree_sort": true,
+        "optimization_strategy": "Create a composite index on orders(order_date, amount) to filter efficiently, and consider an index on orders(user_id) to speed up the join. Also, consider a covering index on orders(user_id, amount, order_date, status) to avoid accessing the table for the join and aggregation. For the GROUP BY, an index on users(region) and orders(status) might help, but the main bottleneck is the full scan on orders."
+      }
+    },
+    {
+      "test_case_id": "TC-05",
+      "test_case_name": "heavy_aggregation_on_unindexed_predicate",
+      "agent_id": "IndexArchitect",
+      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"orders\",\n    \"detail\": \"The query scans the entire orders table (SCAN o) because there is no index on the order_date or amount columns. This is inefficient for large tables, especially when filtering by amount and date.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The GROUP BY operation uses a temporary B-tree to sort and group the results. This is required because there is no index supporting the grouping columns (u.region, o.status). This adds overhead and memory usage.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The ORDER BY total_revenue DESC also uses a temporary B-tree to sort the final result set. This is an additional sort operation that could be avoided if the query were optimized differently.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+      "tool_called": "DatabaseSandbox.apply_index",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-05.db",
+        "recommended_indexes": [
+          "CREATE INDEX idx_orders_amount_date ON orders (amount, order_date);",
+          "CREATE INDEX idx_orders_user_amount_date ON orders (user_id, amount, order_date);",
+          "CREATE INDEX idx_users_region_id ON users (region, id);"
+        ]
+      },
+      "tool_output": {
+        "applied_indexes": [
+          "CREATE INDEX idx_orders_amount_date ON orders (amount, order_date);",
+          "CREATE INDEX idx_orders_user_amount_date ON orders (user_id, amount, order_date);",
+          "CREATE INDEX idx_users_region_id ON users (region, id);"
+        ],
+        "failed_indexes": [],
+        "post_index_plan": [
+          {
+            "id": 9,
+            "parent_id": 0,
+            "detail": "SEARCH o USING INDEX idx_orders_amount_date (amount>?)",
+            "operation_type": "SEARCH",
+            "table": "o",
+            "index": "idx_orders_amount_date",
+            "is_scan": false,
+            "is_search": true,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 15,
+            "parent_id": 0,
+            "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
+            "operation_type": "SEARCH",
+            "table": "u",
+            "index": null,
+            "is_scan": false,
+            "is_search": true,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 18,
+            "parent_id": 0,
+            "detail": "USE TEMP B-TREE FOR GROUP BY",
+            "operation_type": "TEMP_BTREE",
+            "table": null,
+            "index": null,
+            "is_scan": false,
+            "is_search": false,
+            "uses_temp_btree": true,
+            "uses_covering_index": false
+          },
+          {
+            "id": 70,
+            "parent_id": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY",
+            "operation_type": "TEMP_BTREE",
+            "table": null,
+            "index": null,
+            "is_scan": false,
+            "is_search": false,
+            "uses_temp_btree": true,
+            "uses_covering_index": false
+          }
+        ]
+      },
+      "retries_triggered": 0,
+      "llm_output": {
+        "recommended_indexes": [
+          {
+            "table": "orders",
+            "ddl": "CREATE INDEX idx_orders_amount_date ON orders (amount, order_date);",
+            "purpose": "This composite index directly supports the WHERE clause filtering on amount >= 200.0 and order_date >= '2024-01-01'. It allows the database to perform an index range scan instead of a full table scan, dramatically reducing the number of rows read."
+          },
+          {
+            "table": "orders",
+            "ddl": "CREATE INDEX idx_orders_user_amount_date ON orders (user_id, amount, order_date);",
+            "purpose": "This covering index includes user_id for the JOIN to users, and also amount and order_date for filtering. It enables the database to retrieve all necessary columns (user_id, amount, order_date) directly from the index, avoiding table lookups and further reducing I/O. It also helps with the GROUP BY if the optimizer can use it for ordering."
+          },
+          {
+            "table": "users",
+            "ddl": "CREATE INDEX idx_users_region_id ON users (region, id);",
+            "purpose": "This covering index on users supports the GROUP BY on u.region and the JOIN on u.id. It allows the database to scan only the needed columns (region and id) for the join and grouping, avoiding a full table scan on users and reducing the temporary B-tree sort overhead for grouping."
+          }
+        ],
+        "rationale": "The primary bottleneck is the full table scan on orders. The first index on (amount, order_date) is the most critical to eliminate that scan. The second index on (user_id, amount, order_date) is a covering index that also supports the join and filtering, potentially allowing index-only scans. The third index on users (region, id) is a covering index for the join and grouping, reducing the need for a temporary B-tree for GROUP BY. Together, these indexes convert the expensive sequential scans and sorts into efficient B-Tree lookups and index-ordered scans, significantly improving query performance."
+      }
+    },
+    {
+      "test_case_id": "TC-05",
+      "test_case_name": "heavy_aggregation_on_unindexed_predicate",
+      "agent_id": "Developer",
+      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"orders\",\n    \"detail\": \"The query scans the entire orders table (SCAN o) because there is no index on the order_date or amount columns. This is inefficient for large tables, especially when filtering by amount and date.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The GROUP BY operation uses a temporary B-tree to sort and group the results. This is required because there is no index supporting the grouping columns (u.region, o.status). This adds overhead and memory usage.\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The ORDER BY total_revenue DESC also uses a temporary B-tree to sort the final result set. This is an additional sort operation that could be avoided if the query were optimized differently.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_orders_amount_date ON orders (amount, order_date);\",\n  \"CREATE INDEX idx_orders_user_amount_date ON orders (user_id, amount, order_date);\",\n  \"CREATE INDEX idx_users_region_id ON users (region, id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+      "tool_called": "DatabaseSandbox.verify",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-05.db",
+        "original_query": "SELECT u.region, o.status,        COUNT(o.id) AS total_orders,        AVG(o.amount) AS avg_order_amount,        SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0   AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
+        "optimized_query": "SELECT u.region, o.status, COUNT(o.id) AS total_orders, AVG(o.amount) AS avg_order_amount, SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0 AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
+        "timeout_sec": 10.0
+      },
+      "tool_output": {
+        "status": "PASSED",
+        "is_valid": null,
+        "verification_message": "Result sets match perfectly as multiset (25 rows).",
+        "original_time_ms": 33.414,
+        "optimized_time_ms": 21.132,
+        "speedup_ratio": 1.58,
+        "original_row_count": 25,
+        "optimized_row_count": 25,
+        "error_details": null,
+        "feedback_for_developer": null
+      },
+      "retries_triggered": 0,
+      "llm_output": {
+        "rewritten_sql": "SELECT u.region, o.status, COUNT(o.id) AS total_orders, AVG(o.amount) AS avg_order_amount, SUM(o.amount) AS total_revenue FROM orders o JOIN users u ON o.user_id = u.id WHERE o.amount >= 200.0 AND o.order_date >= '2024-01-01' GROUP BY u.region, o.status HAVING SUM(o.amount) > 25000.0 ORDER BY total_revenue DESC;",
+        "applied_techniques": [
+          "Index optimization",
+          "SARGable predicate",
+          "No query rewrite needed"
+        ],
+        "rationale": "The original query is already well-structured with SARGable predicates (o.amount >= 200.0 and o.order_date >= '2024-01-01') and uses GROUP BY/HAVING/ORDER BY correctly. The main performance bottleneck is the lack of indexes. The applied indexes (idx_orders_amount_date, idx_orders_user_amount_date, idx_users_region_id) will allow SQLite to efficiently filter orders by amount and date, and to perform the join and grouping without full table scans. No query transformation is required; the query remains semantically identical."
+      }
+    }
+  ]
 }

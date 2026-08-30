@@ -114,7 +114,7 @@ def run_subprocess_command(
         return False, f"Subprocess '{description}' failed with error: {e}"
 
 
-def verify_json_artifact(file_path: Path, expected_keys: Optional[List[str]] = None) -> Tuple[bool, Dict[str, Any], str]:
+def verify_json_artifact(file_path: Path, expected_keys: Optional[List[str]] = None) -> Tuple[bool, Any, str]:
     """Verify that a required JSON artifact file exists and contains valid JSON."""
     if not file_path.exists():
         return False, {}, f"Artifact file '{file_path.name}' does not exist at {file_path}."
@@ -123,15 +123,26 @@ def verify_json_artifact(file_path: Path, expected_keys: Optional[List[str]] = N
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        if not isinstance(data, dict):
-            return False, {}, f"Artifact '{file_path.name}' must contain a JSON object (dict), found {type(data).__name__}."
+        if isinstance(data, list):
+            if not data:
+                return False, data, f"Artifact '{file_path.name}' is an empty array."
+            if expected_keys:
+                first_item = data[0] if isinstance(data[0], dict) else {}
+                missing = [k for k in expected_keys if k not in first_item]
+                if missing:
+                    return False, data, f"Execution objects in '{file_path.name}' missing keys: {', '.join(missing)}."
+            return True, data, f"Valid JSON array artifact with {len(data)} execution objects."
 
-        if expected_keys:
-            missing = [k for k in expected_keys if k not in data]
-            if missing:
-                return False, data, f"Artifact '{file_path.name}' is missing required keys: {', '.join(missing)}."
+        elif isinstance(data, dict):
+            if expected_keys:
+                missing = [k for k in expected_keys if k not in data]
+                if missing:
+                    return False, data, f"Artifact '{file_path.name}' is missing required keys: {', '.join(missing)}."
+            return True, data, f"Valid JSON dictionary artifact with {len(data)} root keys."
 
-        return True, data, f"Valid JSON artifact with {len(data)} root keys."
+        else:
+            return False, {}, f"Artifact '{file_path.name}' must contain a JSON object or array, found {type(data).__name__}."
+
     except json.JSONDecodeError as e:
         return False, {}, f"Artifact '{file_path.name}' contains invalid JSON: {e}"
     except Exception as e:
@@ -257,13 +268,14 @@ def main() -> None:
 
     traj_ok, traj_data, traj_msg = verify_json_artifact(
         traj_file,
-        expected_keys=["trajectories"]
+        expected_keys=["agent_id", "raw_prompt", "tool_called", "tool_arguments", "tool_output", "retries_triggered"]
     )
     if not traj_ok:
         print_failure(f"trajectories.json check failed: {traj_msg}")
         print_banner_failure(traj_msg)
         sys.exit(1)
-    print_success(f"trajectories.json verified: {traj_msg} (Contains {len(traj_data.get('trajectories', []))} traces)")
+    num_traces = len(traj_data) if isinstance(traj_data, list) else len(traj_data.get("trajectories", []))
+    print_success(f"trajectories.json verified: {traj_msg} (Contains {num_traces} execution traces)")
 
     # -------------------------------------------------------------
     # Step 4: Parse & Assert Metric Superiority

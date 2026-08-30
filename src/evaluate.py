@@ -91,30 +91,29 @@ def format_table(
     return "\n".join(output_lines)
 
 
-def consolidate_trajectories(trajectories_dir: Path) -> Dict[str, Any]:
-    """Read and aggregate all individual trajectory JSON files into a consolidated dictionary.
+def consolidate_trajectories(trajectories_dir: Path) -> List[Dict[str, Any]]:
+    """Read and aggregate all individual trajectory execution objects into a consolidated array.
 
     Args:
         trajectories_dir: Directory containing individual test case trajectory files.
 
     Returns:
-        Consolidated trajectories data structure.
+        Consolidated list of execution objects.
     """
-    trajectories_list = []
+    execution_objects: List[Dict[str, Any]] = []
     if trajectories_dir.exists():
         for file_path in sorted(trajectories_dir.glob("*.json")):
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     traj_data = json.load(f)
-                    trajectories_list.append(traj_data)
+                    if isinstance(traj_data, dict) and "execution_steps" in traj_data:
+                        execution_objects.extend(traj_data["execution_steps"])
+                    elif isinstance(traj_data, list):
+                        execution_objects.extend(traj_data)
             except Exception as e:
                 logger.warning("Could not read trajectory file %s: %s", file_path, e)
 
-    return {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "total_trajectories": len(trajectories_list),
-        "trajectories": trajectories_list
-    }
+    return execution_objects
 
 
 def run_evaluation(
@@ -358,11 +357,8 @@ def run_evaluation(
 
     # Step 6: Save Artifact 2: trajectories.json
     consolidated_trajectories = consolidate_trajectories(trajectories_dir)
-    consolidated_trajectories["model"] = model_display
-    trajectories_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(trajectories_path, "w", encoding="utf-8") as tf:
-        json.dump(consolidated_trajectories, tf, indent=2)
-    log(f"✅ Generated Consolidated Trajectories Artifact: {trajectories_path}")
+    OptimizerOrchestrator.export_trajectories(trajectories_path, consolidated_trajectories)
+    log(f"✅ Generated Consolidated Trajectories Artifact: {trajectories_path} ({len(consolidated_trajectories)} execution objects)")
     log("=" * 90 + "\n")
 
     return evaluation_dataset

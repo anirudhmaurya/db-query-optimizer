@@ -25,12 +25,38 @@ def test_format_table():
 
 
 def test_consolidate_trajectories(tmp_path: Path):
-    """Test consolidating individual trajectory JSON files into a single artifact."""
+    """Test consolidating individual trajectory execution objects into a single artifact."""
     traj_dir = tmp_path / "trajectories"
     traj_dir.mkdir(parents=True, exist_ok=True)
 
-    t1 = {"test_case_id": "TC-01", "test_case_name": "tc1", "stages": {"profiler": {}}}
-    t2 = {"test_case_id": "TC-02", "test_case_name": "tc2", "stages": {"profiler": {}}}
+    t1 = {
+        "test_case_id": "TC-01",
+        "test_case_name": "tc1",
+        "execution_steps": [
+            {
+                "agent_id": "Profiler",
+                "raw_prompt": "prompt 1",
+                "tool_called": "DatabaseSandbox.get_explain_plan",
+                "tool_arguments": {"query": "SELECT 1;"},
+                "tool_output": [],
+                "retries_triggered": 0
+            }
+        ]
+    }
+    t2 = {
+        "test_case_id": "TC-02",
+        "test_case_name": "tc2",
+        "execution_steps": [
+            {
+                "agent_id": "Developer",
+                "raw_prompt": "prompt 2",
+                "tool_called": "DatabaseSandbox.verify",
+                "tool_arguments": {"query": "SELECT 2;"},
+                "tool_output": {"status": "PASSED"},
+                "retries_triggered": 0
+            }
+        ]
+    }
 
     with open(traj_dir / "TC-01_tc1.json", "w", encoding="utf-8") as f:
         json.dump(t1, f)
@@ -38,10 +64,9 @@ def test_consolidate_trajectories(tmp_path: Path):
         json.dump(t2, f)
 
     consolidated = consolidate_trajectories(traj_dir)
-    assert consolidated["total_trajectories"] == 2
-    assert len(consolidated["trajectories"]) == 2
-    assert consolidated["trajectories"][0]["test_case_id"] == "TC-01"
-    assert consolidated["trajectories"][1]["test_case_id"] == "TC-02"
+    assert len(consolidated) == 2
+    assert consolidated[0]["agent_id"] == "Profiler"
+    assert consolidated[1]["agent_id"] == "Developer"
 
 
 def test_run_evaluation_mock(tmp_path: Path):

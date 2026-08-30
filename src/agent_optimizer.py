@@ -765,6 +765,90 @@ class OptimizerOrchestrator:
                 "attempts": retries_log
             }
 
+            # Build strictly formatted execution objects according to hackathon criteria
+            execution_steps: List[Dict[str, Any]] = [
+                {
+                    "test_case_id": tc_id,
+                    "test_case_name": tc_name,
+                    "agent_id": "Profiler",
+                    "raw_prompt": profiler_report.get("raw_prompt", ""),
+                    "tool_called": "DatabaseSandbox.get_explain_plan",
+                    "tool_arguments": {
+                        "db_path": str(isolated_db.name),
+                        "query": original_query
+                    },
+                    "tool_output": initial_plan,
+                    "retries_triggered": 0,
+                    "llm_output": {
+                        "identified_bottlenecks": profiler_report.get("identified_bottlenecks", []),
+                        "critical_tables": profiler_report.get("critical_tables", []),
+                        "has_temp_btree_sort": profiler_report.get("has_temp_btree_sort", False),
+                        "optimization_strategy": profiler_report.get("optimization_strategy", "")
+                    }
+                },
+                {
+                    "test_case_id": tc_id,
+                    "test_case_name": tc_name,
+                    "agent_id": "IndexArchitect",
+                    "raw_prompt": architect_report.get("raw_prompt", ""),
+                    "tool_called": "DatabaseSandbox.apply_index",
+                    "tool_arguments": {
+                        "db_path": str(isolated_db.name),
+                        "recommended_indexes": [idx.get("ddl") for idx in architect_report.get("recommended_indexes", [])]
+                    },
+                    "tool_output": {
+                        "applied_indexes": architect_report.get("applied_indexes", []),
+                        "failed_indexes": architect_report.get("failed_indexes", []),
+                        "post_index_plan": architect_report.get("post_index_plan", [])
+                    },
+                    "retries_triggered": 0,
+                    "llm_output": {
+                        "recommended_indexes": architect_report.get("recommended_indexes", []),
+                        "rationale": architect_report.get("rationale", "")
+                    }
+                }
+            ]
+
+            for attempt_idx, att in enumerate(retries_log):
+                dev_rep = att["developer_report"]
+                ver_rep = att["verification_report"]
+                cand_sql = dev_rep.get("rewritten_sql", original_query)
+                retries_count = attempt_idx
+
+                execution_steps.append({
+                    "test_case_id": tc_id,
+                    "test_case_name": tc_name,
+                    "agent_id": "Developer",
+                    "raw_prompt": dev_rep.get("raw_prompt", ""),
+                    "tool_called": "DatabaseSandbox.verify",
+                    "tool_arguments": {
+                        "db_path": str(isolated_db.name),
+                        "original_query": original_query,
+                        "optimized_query": cand_sql,
+                        "timeout_sec": self.timeout_sec
+                    },
+                    "tool_output": {
+                        "status": ver_rep.get("status"),
+                        "is_valid": ver_rep.get("is_valid"),
+                        "verification_message": ver_rep.get("verification_message"),
+                        "original_time_ms": ver_rep.get("original_time_ms"),
+                        "optimized_time_ms": ver_rep.get("optimized_time_ms"),
+                        "speedup_ratio": ver_rep.get("speedup_ratio"),
+                        "original_row_count": ver_rep.get("original_row_count"),
+                        "optimized_row_count": ver_rep.get("optimized_row_count"),
+                        "error_details": ver_rep.get("error_details"),
+                        "feedback_for_developer": ver_rep.get("feedback_for_developer")
+                    },
+                    "retries_triggered": retries_count,
+                    "llm_output": {
+                        "rewritten_sql": cand_sql,
+                        "applied_techniques": dev_rep.get("applied_techniques", []),
+                        "rationale": dev_rep.get("rationale", "")
+                    }
+                })
+
+            trajectory["execution_steps"] = execution_steps
+
             # Compile final outcome record
             best_developer_report = retries_log[-1]["developer_report"]
             outcome = {
@@ -797,21 +881,50 @@ class OptimizerOrchestrator:
                 except Exception:
                     pass
 
+    @staticmethod
+    def export_trajectories(
+        trajectories_path: Union[str, Path],
+        execution_objects: List[Dict[str, Any]]
+    ) -> Path:
+        """Export pretty-printed JSON file containing an array of execution objects.
+
+        Each object strictly includes:
+        - The specific Agent ID (e.g. 'Profiler', 'IndexArchitect', 'Developer', 'Verifier')
+        - The raw prompt/instruction sent to the agent
+        - The exact tool called and the arguments passed
+        - The raw output received from the tool
+        - The number of retries triggered before reaching a valid output
+
+        Args:
+            trajectories_path: Destination path for trajectories.json.
+            execution_objects: Array of execution objects.
+
+        Returns:
+            Resolved Path.
+        """
+        path = Path(trajectories_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(execution_objects, f, indent=2)
+        return path
+
     def run_optimization_suite(
         self,
         db_path: Union[str, Path] = "sandbox.db",
         test_cases_path: Union[str, Path] = "test_cases.json",
         output_path: Union[str, Path] = "agent_results.json",
         trajectories_dir: Union[str, Path] = "trajectories",
+        trajectories_path: Union[str, Path] = "trajectories.json",
         quiet: bool = False
     ) -> Dict[str, Any]:
-        """Run the multi-agent optimization pipeline on all test cases.
+        """Run the multi-agent optimization pipeline on all test cases and export trajectories.json.
 
         Args:
             db_path: Path to baseline SQLite database.
             test_cases_path: Path to test cases JSON.
             output_path: Destination path for agent_results.json.
-            trajectories_dir: Directory for storing trajectory evidence files.
+            trajectories_dir: Directory for storing individual trajectory evidence files.
+            trajectories_path: Destination path for consolidated trajectories.json.
             quiet: If True, suppress console progress output.
 
         Returns:
@@ -823,6 +936,7 @@ class OptimizerOrchestrator:
         test_cases_path = Path(test_cases_path)
         output_path = Path(output_path)
         trajectories_dir = Path(trajectories_dir)
+        trajectories_path = Path(trajectories_path)
 
         if not db_path.exists():
             raise FileNotFoundError(f"Database not found at {db_path}")
@@ -847,6 +961,7 @@ class OptimizerOrchestrator:
 
         results: List[Dict[str, Any]] = []
         valid_speedups: List[float] = []
+        all_execution_objects: List[Dict[str, Any]] = []
         successful_cases = 0
         failed_cases = 0
 
@@ -866,6 +981,9 @@ class OptimizerOrchestrator:
 
             tc_elapsed = time.perf_counter() - start_tc
             trajectory = outcome.pop("trajectory")
+
+            # Accumulate execution objects for trajectories.json
+            all_execution_objects.extend(trajectory.get("execution_steps", []))
 
             # Save individual trajectory evidence artifact
             traj_file = trajectories_dir / f"{tc_id}_{tc_name}.json"
@@ -897,6 +1015,9 @@ class OptimizerOrchestrator:
 
         avg_speedup = round(sum(valid_speedups) / len(valid_speedups), 2) if valid_speedups else 0.0
 
+        # Export consolidated trajectories.json array
+        self.export_trajectories(trajectories_path, all_execution_objects)
+
         summary = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "orchestrator_model": self.model_name,
@@ -907,6 +1028,7 @@ class OptimizerOrchestrator:
             "success_rate_pct": round((successful_cases / len(test_cases)) * 100.0, 1) if test_cases else 0.0,
             "average_speedup_on_verified": avg_speedup,
             "max_speedup": max(valid_speedups) if valid_speedups else 0.0,
+            "trajectories_file": str(trajectories_path),
             "trajectories_directory": str(trajectories_dir),
             "results": results
         }
@@ -926,7 +1048,7 @@ class OptimizerOrchestrator:
         log_func(f"Avg Speedup         : {summary['average_speedup_on_verified']}x")
         log_func(f"Max Speedup         : {summary['max_speedup']}x")
         log_func(f"Results Output      : {output_path}")
-        log_func(f"Trajectories Saved  : {trajectories_dir}/*.json")
+        log_func(f"Trajectories Saved  : {trajectories_path} & {trajectories_dir}/*.json")
         log_func("=" * 55 + "\n")
 
         return summary
@@ -942,6 +1064,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--test-cases-path", type=Path, default=Path("test_cases.json"), help="Path to test cases JSON")
     parser.add_argument("--output-path", type=Path, default=Path("agent_results.json"), help="Output path for agent results JSON")
     parser.add_argument("--trajectories-dir", type=Path, default=Path("trajectories"), help="Directory for trajectory JSON files")
+    parser.add_argument("--trajectories-path", type=Path, default=Path("trajectories.json"), help="Output path for consolidated trajectories.json")
     parser.add_argument("--provider", choices=["deepseek", "gemini", "openai", "anthropic", "mock"], default=None, help="LLM Provider (deepseek, gemini, openai, anthropic, mock)")
     parser.add_argument("--model", type=str, default=None, help="LLM Model (e.g. deepseek-chat, gemini-3.6-flash, gpt-4o)")
     parser.add_argument("--api-key", type=str, default=None, help="API Key")

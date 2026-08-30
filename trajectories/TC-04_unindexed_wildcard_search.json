@@ -2,8 +2,8 @@
   "test_case_id": "TC-04",
   "test_case_name": "unindexed_wildcard_search",
   "anti_pattern": "Unindexed LIKE with leading wildcard on JSON payload and names",
-  "model": "mock-orchestrator",
-  "start_time": "2026-08-30T12:16:00Z",
+  "model": "deepseek-chat",
+  "start_time": "2026-08-30T12:23:13Z",
   "original_query": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
   "stages": {
     "profiler": {
@@ -49,49 +49,76 @@
         "identified_bottlenecks": [
           {
             "type": "FULL_TABLE_SCAN",
-            "table": "e",
-            "detail": "Sequential scan on e table across full dataset.",
+            "table": "events",
+            "detail": "The query performs a full table scan on the events table (SCAN e) because the WHERE clause uses LIKE patterns on the payload column, which is not indexed and cannot use an index due to the leading wildcard. This is the primary bottleneck as it scans all rows in events.",
             "severity": "HIGH"
+          },
+          {
+            "type": "NON_SARGABLE_PREDICATE",
+            "table": "events",
+            "detail": "The predicates e.payload LIKE '%\"status\": \"failed\"%' and e.payload LIKE '%\"response_status\": 500%' are non-sargable because they use leading wildcards, preventing the use of any index on payload. This forces a full table scan and also requires expensive string pattern matching on every row.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "NON_SARGABLE_PREDICATE",
+            "table": "users",
+            "detail": "The predicate u.name LIKE '%Smith%' is non-sargable due to the leading wildcard, preventing the use of an index on users.name. This forces a full scan of the users table for each matching event (though the join uses the primary key, the filter on name is applied after the join, causing additional overhead).",
+            "severity": "MEDIUM"
           },
           {
             "type": "TEMP_BTREE_SORT",
             "table": null,
-            "detail": "Temporary B-Tree created for sorting or grouping.",
+            "detail": "The query uses a temporary B-tree for ORDER BY e.created_at DESC because there is no index on events.created_at. This requires sorting all matching rows, which is expensive especially with a large result set before the LIMIT is applied.",
             "severity": "MEDIUM"
           }
         ],
         "critical_tables": [
-          "e"
+          "events",
+          "users"
         ],
         "has_temp_btree_sort": true,
-        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
-        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 5,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN e\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 13,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH u USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 33,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
+        "optimization_strategy": "To optimize, consider the following: 1) Add an index on events(created_at) to avoid the temp B-tree sort, but note that the leading wildcard LIKE on payload still requires a full scan. 2) If possible, restructure the data to store status and response_status as separate columns (or use JSON1 extension with generated columns) and index them. 3) Add an index on users(name) but note that leading wildcard still prevents index usage; consider using a full-text search or changing the pattern to a prefix search if possible. 4) Alternatively, use a covering index on events(payload, created_at) but this is unlikely to help due to the leading wildcard. The most effective approach is to normalize the payload data into separate indexed columns and use equality predicates instead of LIKE.",
+        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 5,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN e\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 13,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH u USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 33,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
+        "raw_response": "{\n  \"identified_bottlenecks\": [\n    {\n      \"type\": \"FULL_TABLE_SCAN\",\n      \"table\": \"events\",\n      \"detail\": \"The query performs a full table scan on the events table (SCAN e) because the WHERE clause uses LIKE patterns on the payload column, which is not indexed and cannot use an index due to the leading wildcard. This is the primary bottleneck as it scans all rows in events.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"NON_SARGABLE_PREDICATE\",\n      \"table\": \"events\",\n      \"detail\": \"The predicates e.payload LIKE '%\\\"status\\\": \\\"failed\\\"%' and e.payload LIKE '%\\\"response_status\\\": 500%' are non-sargable because they use leading wildcards, preventing the use of any index on payload. This forces a full table scan and also requires expensive string pattern matching on every row.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"NON_SARGABLE_PREDICATE\",\n      \"table\": \"users\",\n      \"detail\": \"The predicate u.name LIKE '%Smith%' is non-sargable due to the leading wildcard, preventing the use of an index on users.name. This forces a full scan of the users table for each matching event (though the join uses the primary key, the filter on name is applied after the join, causing additional overhead).\",\n      \"severity\": \"MEDIUM\"\n    },\n    {\n      \"type\": \"TEMP_BTREE_SORT\",\n      \"table\": null,\n      \"detail\": \"The query uses a temporary B-tree for ORDER BY e.created_at DESC because there is no index on events.created_at. This requires sorting all matching rows, which is expensive especially with a large result set before the LIMIT is applied.\",\n      \"severity\": \"MEDIUM\"\n    }\n  ],\n  \"critical_tables\": [\"events\", \"users\"],\n  \"has_temp_btree_sort\": true,\n  \"optimization_strategy\": \"To optimize, consider the following: 1) Add an index on events(created_at) to avoid the temp B-tree sort, but note that the leading wildcard LIKE on payload still requires a full scan. 2) If possible, restructure the data to store status and response_status as separate columns (or use JSON1 extension with generated columns) and index them. 3) Add an index on users(name) but note that leading wildcard still prevents index usage; consider using a full-text search or changing the pattern to a prefix search if possible. 4) Alternatively, use a covering index on events(payload, created_at) but this is unlikely to help due to the leading wildcard. The most effective approach is to normalize the payload data into separate indexed columns and use equality predicates instead of LIKE.\"\n}"
       },
-      "elapsed_sec": 0.0
+      "elapsed_sec": 5.519
     },
     "index_architect": {
       "architect_report": {
         "recommended_indexes": [
           {
             "table": "events",
-            "ddl": "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);",
-            "purpose": "Index timestamp sorting and user join key."
+            "ddl": "CREATE INDEX idx_events_created_at_payload ON events (created_at DESC, payload);",
+            "purpose": "Supports ORDER BY created_at DESC without a temp B-tree sort, and allows the database to scan events in reverse chronological order, applying the payload LIKE filters on each row. While the leading wildcard prevents a full index seek, this index reduces the sort overhead and can stop early once 50 matching rows are found."
+          },
+          {
+            "table": "users",
+            "ddl": "CREATE INDEX idx_users_name_id ON users (name, id);",
+            "purpose": "Although the LIKE '%Smith%' is non-sargable, this covering index allows the database to scan users by name pattern and retrieve the id (needed for the join) without touching the table. It also helps if the optimizer chooses to filter users before joining, reducing the number of lookups."
+          },
+          {
+            "table": "events",
+            "ddl": "CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);",
+            "purpose": "Optimizes the join with users by providing an index on the foreign key user_id, and also supports ordering by created_at for each user. This can be used if the optimizer decides to drive from users (filtered by name) and then fetch events, avoiding a full scan of events."
           }
         ],
-        "rationale": "Created composite covering indexes matching query join and filter columns.",
-        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "rationale": "The primary bottleneck is the full table scan on events due to non-sargable LIKE predicates on payload. Since the leading wildcard prevents a traditional index seek, the best strategy is to reduce the cost of sorting and enable early termination via an index on created_at. The index on users.name helps filter users more efficiently, and the index on events.user_id supports the join. These three indexes together minimize the data scanned and avoid expensive temporary sorts, while acknowledging that the payload LIKE filters will still require row-level pattern matching.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"The query performs a full table scan on the events table (SCAN e) because the WHERE clause uses LIKE patterns on the payload column, which is not indexed and cannot use an index due to the leading wildcard. This is the primary bottleneck as it scans all rows in events.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"events\",\n    \"detail\": \"The predicates e.payload LIKE '%\\\"status\\\": \\\"failed\\\"%' and e.payload LIKE '%\\\"response_status\\\": 500%' are non-sargable because they use leading wildcards, preventing the use of any index on payload. This forces a full table scan and also requires expensive string pattern matching on every row.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"users\",\n    \"detail\": \"The predicate u.name LIKE '%Smith%' is non-sargable due to the leading wildcard, preventing the use of an index on users.name. This forces a full scan of the users table for each matching event (though the join uses the primary key, the filter on name is applied after the join, causing additional overhead).\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query uses a temporary B-tree for ORDER BY e.created_at DESC because there is no index on events.created_at. This requires sorting all matching rows, which is expensive especially with a large result set before the LIMIT is applied.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "raw_response": "{\n  \"recommended_indexes\": [\n    {\n      \"table\": \"events\",\n      \"ddl\": \"CREATE INDEX idx_events_created_at_payload ON events (created_at DESC, payload);\",\n      \"purpose\": \"Supports ORDER BY created_at DESC without a temp B-tree sort, and allows the database to scan events in reverse chronological order, applying the payload LIKE filters on each row. While the leading wildcard prevents a full index seek, this index reduces the sort overhead and can stop early once 50 matching rows are found.\"\n    },\n    {\n      \"table\": \"users\",\n      \"ddl\": \"CREATE INDEX idx_users_name_id ON users (name, id);\",\n      \"purpose\": \"Although the LIKE '%Smith%' is non-sargable, this covering index allows the database to scan users by name pattern and retrieve the id (needed for the join) without touching the table. It also helps if the optimizer chooses to filter users before joining, reducing the number of lookups.\"\n    },\n    {\n      \"table\": \"events\",\n      \"ddl\": \"CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);\",\n      \"purpose\": \"Optimizes the join with users by providing an index on the foreign key user_id, and also supports ordering by created_at for each user. This can be used if the optimizer decides to drive from users (filtered by name) and then fetch events, avoiding a full scan of events.\"\n    }\n  ],\n  \"rationale\": \"The primary bottleneck is the full table scan on events due to non-sargable LIKE predicates on payload. Since the leading wildcard prevents a traditional index seek, the best strategy is to reduce the cost of sorting and enable early termination via an index on created_at. The index on users.name helps filter users more efficiently, and the index on events.user_id supports the join. These three indexes together minimize the data scanned and avoid expensive temporary sorts, while acknowledging that the payload LIKE filters will still require row-level pattern matching.\"\n}",
         "applied_indexes": [
-          "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
+          "CREATE INDEX idx_events_created_at_payload ON events (created_at DESC, payload);",
+          "CREATE INDEX idx_users_name_id ON users (name, id);",
+          "CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
             "id": 6,
             "parent_id": 0,
-            "detail": "SCAN e USING INDEX idx_events_created_user",
+            "detail": "SCAN e USING INDEX idx_events_created_at_payload",
             "operation_type": "SCAN",
             "table": "e",
-            "index": "idx_events_created_user",
+            "index": "idx_events_created_at_payload",
             "is_scan": true,
             "is_search": false,
             "uses_temp_btree": false,
@@ -115,9 +142,11 @@
         ]
       },
       "applied_indexes": [
-        "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
+        "CREATE INDEX idx_events_created_at_payload ON events (created_at DESC, payload);",
+        "CREATE INDEX idx_users_name_id ON users (name, id);",
+        "CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);"
       ],
-      "elapsed_sec": 0.015
+      "elapsed_sec": 4.707
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -126,12 +155,14 @@
         {
           "attempt": 1,
           "developer_report": {
-            "rewritten_sql": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
+            "rewritten_sql": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%' AND e.payload LIKE '%\"response_status\": 500%' AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
             "applied_techniques": [
-              "Covering Index Alignment"
+              "No changes possible without altering semantics",
+              "Preserved original query due to non-SARGable predicates and lack of alternative"
             ],
-            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
+            "rationale": "The original query uses leading wildcard LIKE patterns on payload and name, which cannot be optimized with indexes or rewritten to SARGable predicates without changing semantics. The applied indexes (idx_events_created_at_payload, idx_users_name_id, idx_events_user_id_created_at) are not useful for these patterns. The ORDER BY can use idx_events_created_at_payload if the WHERE clause were more selective, but since it's not, the query remains as is. No window functions or CTEs can replace the LIKE filters. Therefore, the query is unchanged to preserve exact result set.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"The query performs a full table scan on the events table (SCAN e) because the WHERE clause uses LIKE patterns on the payload column, which is not indexed and cannot use an index due to the leading wildcard. This is the primary bottleneck as it scans all rows in events.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"events\",\n    \"detail\": \"The predicates e.payload LIKE '%\\\"status\\\": \\\"failed\\\"%' and e.payload LIKE '%\\\"response_status\\\": 500%' are non-sargable because they use leading wildcards, preventing the use of any index on payload. This forces a full table scan and also requires expensive string pattern matching on every row.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"users\",\n    \"detail\": \"The predicate u.name LIKE '%Smith%' is non-sargable due to the leading wildcard, preventing the use of an index on users.name. This forces a full scan of the users table for each matching event (though the join uses the primary key, the filter on name is applied after the join, causing additional overhead).\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query uses a temporary B-tree for ORDER BY e.created_at DESC because there is no index on events.created_at. This requires sorting all matching rows, which is expensive especially with a large result set before the LIMIT is applied.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_events_created_at_payload ON events (created_at DESC, payload);\",\n  \"CREATE INDEX idx_users_name_id ON users (name, id);\",\n  \"CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+            "raw_response": "{\n  \"rewritten_sql\": \"SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\\\"status\\\": \\\"failed\\\"%' AND e.payload LIKE '%\\\"response_status\\\": 500%' AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\",\n  \"applied_techniques\": [\"No changes possible without altering semantics\", \"Preserved original query due to non-SARGable predicates and lack of alternative\"],\n  \"rationale\": \"The original query uses leading wildcard LIKE patterns on payload and name, which cannot be optimized with indexes or rewritten to SARGable predicates without changing semantics. The applied indexes (idx_events_created_at_payload, idx_users_name_id, idx_events_user_id_created_at) are not useful for these patterns. The ORDER BY can use idx_events_created_at_payload if the WHERE clause were more selective, but since it's not, the query remains as is. No window functions or CTEs can replace the LIKE filters. Therefore, the query is unchanged to preserve exact result set.\"\n}"
           },
           "verification_report": {
             "status": "PASSED",
@@ -139,9 +170,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 38.773,
-            "optimized_time_ms": 39.252,
-            "speedup_ratio": 0.99,
+            "original_time_ms": 43.63,
+            "optimized_time_ms": 25.068,
+            "speedup_ratio": 1.74,
             "original_row_count": 50,
             "optimized_row_count": 50,
             "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -149,10 +180,10 @@
               {
                 "id": 6,
                 "parent_id": 0,
-                "detail": "SCAN e USING INDEX idx_events_created_user",
+                "detail": "SCAN e USING INDEX idx_events_created_at_payload",
                 "operation_type": "SCAN",
                 "table": "e",
-                "index": "idx_events_created_user",
+                "index": "idx_events_created_at_payload",
                 "is_scan": true,
                 "is_search": false,
                 "uses_temp_btree": false,
@@ -172,9 +203,199 @@
               }
             ]
           },
-          "elapsed_sec": 0.079
+          "elapsed_sec": 2.941
         }
       ]
     }
-  }
+  },
+  "execution_steps": [
+    {
+      "test_case_id": "TC-04",
+      "test_case_name": "unindexed_wildcard_search",
+      "agent_id": "Profiler",
+      "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 5,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN e\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 13,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH u USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"u\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 33,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
+      "tool_called": "DatabaseSandbox.get_explain_plan",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-04.db",
+        "query": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;"
+      },
+      "tool_output": [
+        {
+          "id": 5,
+          "parent_id": 0,
+          "detail": "SCAN e",
+          "operation_type": "SCAN",
+          "table": "e",
+          "index": null,
+          "is_scan": true,
+          "is_search": false,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 13,
+          "parent_id": 0,
+          "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
+          "operation_type": "SEARCH",
+          "table": "u",
+          "index": null,
+          "is_scan": false,
+          "is_search": true,
+          "uses_temp_btree": false,
+          "uses_covering_index": false
+        },
+        {
+          "id": 33,
+          "parent_id": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY",
+          "operation_type": "TEMP_BTREE",
+          "table": null,
+          "index": null,
+          "is_scan": false,
+          "is_search": false,
+          "uses_temp_btree": true,
+          "uses_covering_index": false
+        }
+      ],
+      "retries_triggered": 0,
+      "llm_output": {
+        "identified_bottlenecks": [
+          {
+            "type": "FULL_TABLE_SCAN",
+            "table": "events",
+            "detail": "The query performs a full table scan on the events table (SCAN e) because the WHERE clause uses LIKE patterns on the payload column, which is not indexed and cannot use an index due to the leading wildcard. This is the primary bottleneck as it scans all rows in events.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "NON_SARGABLE_PREDICATE",
+            "table": "events",
+            "detail": "The predicates e.payload LIKE '%\"status\": \"failed\"%' and e.payload LIKE '%\"response_status\": 500%' are non-sargable because they use leading wildcards, preventing the use of any index on payload. This forces a full table scan and also requires expensive string pattern matching on every row.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "NON_SARGABLE_PREDICATE",
+            "table": "users",
+            "detail": "The predicate u.name LIKE '%Smith%' is non-sargable due to the leading wildcard, preventing the use of an index on users.name. This forces a full scan of the users table for each matching event (though the join uses the primary key, the filter on name is applied after the join, causing additional overhead).",
+            "severity": "MEDIUM"
+          },
+          {
+            "type": "TEMP_BTREE_SORT",
+            "table": null,
+            "detail": "The query uses a temporary B-tree for ORDER BY e.created_at DESC because there is no index on events.created_at. This requires sorting all matching rows, which is expensive especially with a large result set before the LIMIT is applied.",
+            "severity": "MEDIUM"
+          }
+        ],
+        "critical_tables": [
+          "events",
+          "users"
+        ],
+        "has_temp_btree_sort": true,
+        "optimization_strategy": "To optimize, consider the following: 1) Add an index on events(created_at) to avoid the temp B-tree sort, but note that the leading wildcard LIKE on payload still requires a full scan. 2) If possible, restructure the data to store status and response_status as separate columns (or use JSON1 extension with generated columns) and index them. 3) Add an index on users(name) but note that leading wildcard still prevents index usage; consider using a full-text search or changing the pattern to a prefix search if possible. 4) Alternatively, use a covering index on events(payload, created_at) but this is unlikely to help due to the leading wildcard. The most effective approach is to normalize the payload data into separate indexed columns and use equality predicates instead of LIKE."
+      }
+    },
+    {
+      "test_case_id": "TC-04",
+      "test_case_name": "unindexed_wildcard_search",
+      "agent_id": "IndexArchitect",
+      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"The query performs a full table scan on the events table (SCAN e) because the WHERE clause uses LIKE patterns on the payload column, which is not indexed and cannot use an index due to the leading wildcard. This is the primary bottleneck as it scans all rows in events.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"events\",\n    \"detail\": \"The predicates e.payload LIKE '%\\\"status\\\": \\\"failed\\\"%' and e.payload LIKE '%\\\"response_status\\\": 500%' are non-sargable because they use leading wildcards, preventing the use of any index on payload. This forces a full table scan and also requires expensive string pattern matching on every row.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"users\",\n    \"detail\": \"The predicate u.name LIKE '%Smith%' is non-sargable due to the leading wildcard, preventing the use of an index on users.name. This forces a full scan of the users table for each matching event (though the join uses the primary key, the filter on name is applied after the join, causing additional overhead).\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query uses a temporary B-tree for ORDER BY e.created_at DESC because there is no index on events.created_at. This requires sorting all matching rows, which is expensive especially with a large result set before the LIMIT is applied.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+      "tool_called": "DatabaseSandbox.apply_index",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-04.db",
+        "recommended_indexes": [
+          "CREATE INDEX idx_events_created_at_payload ON events (created_at DESC, payload);",
+          "CREATE INDEX idx_users_name_id ON users (name, id);",
+          "CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);"
+        ]
+      },
+      "tool_output": {
+        "applied_indexes": [
+          "CREATE INDEX idx_events_created_at_payload ON events (created_at DESC, payload);",
+          "CREATE INDEX idx_users_name_id ON users (name, id);",
+          "CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);"
+        ],
+        "failed_indexes": [],
+        "post_index_plan": [
+          {
+            "id": 6,
+            "parent_id": 0,
+            "detail": "SCAN e USING INDEX idx_events_created_at_payload",
+            "operation_type": "SCAN",
+            "table": "e",
+            "index": "idx_events_created_at_payload",
+            "is_scan": true,
+            "is_search": false,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          },
+          {
+            "id": 15,
+            "parent_id": 0,
+            "detail": "SEARCH u USING INTEGER PRIMARY KEY (rowid=?)",
+            "operation_type": "SEARCH",
+            "table": "u",
+            "index": null,
+            "is_scan": false,
+            "is_search": true,
+            "uses_temp_btree": false,
+            "uses_covering_index": false
+          }
+        ]
+      },
+      "retries_triggered": 0,
+      "llm_output": {
+        "recommended_indexes": [
+          {
+            "table": "events",
+            "ddl": "CREATE INDEX idx_events_created_at_payload ON events (created_at DESC, payload);",
+            "purpose": "Supports ORDER BY created_at DESC without a temp B-tree sort, and allows the database to scan events in reverse chronological order, applying the payload LIKE filters on each row. While the leading wildcard prevents a full index seek, this index reduces the sort overhead and can stop early once 50 matching rows are found."
+          },
+          {
+            "table": "users",
+            "ddl": "CREATE INDEX idx_users_name_id ON users (name, id);",
+            "purpose": "Although the LIKE '%Smith%' is non-sargable, this covering index allows the database to scan users by name pattern and retrieve the id (needed for the join) without touching the table. It also helps if the optimizer chooses to filter users before joining, reducing the number of lookups."
+          },
+          {
+            "table": "events",
+            "ddl": "CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);",
+            "purpose": "Optimizes the join with users by providing an index on the foreign key user_id, and also supports ordering by created_at for each user. This can be used if the optimizer decides to drive from users (filtered by name) and then fetch events, avoiding a full scan of events."
+          }
+        ],
+        "rationale": "The primary bottleneck is the full table scan on events due to non-sargable LIKE predicates on payload. Since the leading wildcard prevents a traditional index seek, the best strategy is to reduce the cost of sorting and enable early termination via an index on created_at. The index on users.name helps filter users more efficiently, and the index on events.user_id supports the join. These three indexes together minimize the data scanned and avoid expensive temporary sorts, while acknowledging that the payload LIKE filters will still require row-level pattern matching."
+      }
+    },
+    {
+      "test_case_id": "TC-04",
+      "test_case_name": "unindexed_wildcard_search",
+      "agent_id": "Developer",
+      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"The query performs a full table scan on the events table (SCAN e) because the WHERE clause uses LIKE patterns on the payload column, which is not indexed and cannot use an index due to the leading wildcard. This is the primary bottleneck as it scans all rows in events.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"events\",\n    \"detail\": \"The predicates e.payload LIKE '%\\\"status\\\": \\\"failed\\\"%' and e.payload LIKE '%\\\"response_status\\\": 500%' are non-sargable because they use leading wildcards, preventing the use of any index on payload. This forces a full table scan and also requires expensive string pattern matching on every row.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"users\",\n    \"detail\": \"The predicate u.name LIKE '%Smith%' is non-sargable due to the leading wildcard, preventing the use of an index on users.name. This forces a full scan of the users table for each matching event (though the join uses the primary key, the filter on name is applied after the join, causing additional overhead).\",\n    \"severity\": \"MEDIUM\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"The query uses a temporary B-tree for ORDER BY e.created_at DESC because there is no index on events.created_at. This requires sorting all matching rows, which is expensive especially with a large result set before the LIMIT is applied.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_events_created_at_payload ON events (created_at DESC, payload);\",\n  \"CREATE INDEX idx_users_name_id ON users (name, id);\",\n  \"CREATE INDEX idx_events_user_id_created_at ON events (user_id, created_at DESC);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+      "tool_called": "DatabaseSandbox.verify",
+      "tool_arguments": {
+        "db_path": "sandbox_TC-04.db",
+        "original_query": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
+        "optimized_query": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%' AND e.payload LIKE '%\"response_status\": 500%' AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
+        "timeout_sec": 10.0
+      },
+      "tool_output": {
+        "status": "PASSED",
+        "is_valid": null,
+        "verification_message": "Result sets match perfectly as multiset (50 rows).",
+        "original_time_ms": 43.63,
+        "optimized_time_ms": 25.068,
+        "speedup_ratio": 1.74,
+        "original_row_count": 50,
+        "optimized_row_count": 50,
+        "error_details": null,
+        "feedback_for_developer": null
+      },
+      "retries_triggered": 0,
+      "llm_output": {
+        "rewritten_sql": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%' AND e.payload LIKE '%\"response_status\": 500%' AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
+        "applied_techniques": [
+          "No changes possible without altering semantics",
+          "Preserved original query due to non-SARGable predicates and lack of alternative"
+        ],
+        "rationale": "The original query uses leading wildcard LIKE patterns on payload and name, which cannot be optimized with indexes or rewritten to SARGable predicates without changing semantics. The applied indexes (idx_events_created_at_payload, idx_users_name_id, idx_events_user_id_created_at) are not useful for these patterns. The ORDER BY can use idx_events_created_at_payload if the WHERE clause were more selective, but since it's not, the query remains as is. No window functions or CTEs can replace the LIKE filters. Therefore, the query is unchanged to preserve exact result set."
+      }
+    }
+  ]
 }

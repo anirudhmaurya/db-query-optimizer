@@ -2,8 +2,8 @@
   "test_case_id": "TC-13",
   "test_case_name": "top_record_tie_trap_max_salary",
   "anti_pattern": "The Top-Record Tie Trap: Correlated MAX() subquery with multiple top-earner ties",
-  "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:04:42Z",
+  "model": "deepseek-chat",
+  "start_time": "2026-08-30T14:07:36Z",
   "original_query": "SELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);",
   "stages": {
     "profiler": {
@@ -49,43 +49,57 @@
         "identified_bottlenecks": [
           {
             "type": "FULL_TABLE_SCAN",
-            "table": "e",
-            "detail": "Sequential scan on e table across full dataset.",
+            "table": "employees",
+            "detail": "The outer query performs a full table scan on the employees table (aliased as 'e'). This is necessary to evaluate each row against the correlated subquery, but it becomes increasingly expensive as the table grows. The scan reads every row without using an index to filter or reduce the result set.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "CORRELATED_SUBQUERY",
+            "table": "employees",
+            "detail": "The query uses a correlated scalar subquery that executes once for every row in the outer employees table. For each employee, it searches for the maximum salary within the same department. This results in O(N*M) complexity where N is the number of employees and M is the average department size. The subquery itself performs a search on the employees table, but without an index on (department_id, salary), it cannot efficiently find the maximum salary per department.",
             "severity": "HIGH"
           }
         ],
         "critical_tables": [
-          "e"
+          "employees"
         ],
         "has_temp_btree_sort": false,
-        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
-        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 2,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN e\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 7,\n    \"parent_id\": 0,\n    \"detail\": \"CORRELATED SCALAR SUBQUERY 1\",\n    \"operation_type\": \"SUBQUERY\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 12,\n    \"parent_id\": 7,\n    \"detail\": \"SEARCH employees\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"employees\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
+        "optimization_strategy": "Create a composite index on employees(department_id, salary) to make the correlated subquery efficient. Additionally, consider rewriting the query using a window function (ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC)) or a self-join with a derived table that pre-computes the maximum salary per department, which would eliminate the need for the correlated subquery and reduce the overall complexity to a single pass with proper indexing.",
+        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 2,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN e\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 7,\n    \"parent_id\": 0,\n    \"detail\": \"CORRELATED SCALAR SUBQUERY 1\",\n    \"operation_type\": \"SUBQUERY\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 12,\n    \"parent_id\": 7,\n    \"detail\": \"SEARCH employees\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"employees\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
+        "raw_response": "```json\n{\n  \"identified_bottlenecks\": [\n    {\n      \"type\": \"FULL_TABLE_SCAN\",\n      \"table\": \"employees\",\n      \"detail\": \"The outer query performs a full table scan on the employees table (aliased as 'e'). This is necessary to evaluate each row against the correlated subquery, but it becomes increasingly expensive as the table grows. The scan reads every row without using an index to filter or reduce the result set.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"CORRELATED_SUBQUERY\",\n      \"table\": \"employees\",\n      \"detail\": \"The query uses a correlated scalar subquery that executes once for every row in the outer employees table. For each employee, it searches for the maximum salary within the same department. This results in O(N*M) complexity where N is the number of employees and M is the average department size. The subquery itself performs a search on the employees table, but without an index on (department_id, salary), it cannot efficiently find the maximum salary per department.\",\n      \"severity\": \"HIGH\"\n    }\n  ],\n  \"critical_tables\": [\"employees\"],\n  \"has_temp_btree_sort\": false,\n  \"optimization_strategy\": \"Create a composite index on employees(department_id, salary) to make the correlated subquery efficient. Additionally, consider rewriting the query using a window function (ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC)) or a self-join with a derived table that pre-computes the maximum salary per department, which would eliminate the need for the correlated subquery and reduce the overall complexity to a single pass with proper indexing.\"\n}\n```"
       },
-      "elapsed_sec": 0.0
+      "elapsed_sec": 3.342
     },
     "index_architect": {
       "architect_report": {
         "recommended_indexes": [
           {
             "table": "employees",
-            "ddl": "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);",
-            "purpose": "Index department grouping with descending salary order."
+            "ddl": "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
+            "purpose": "This composite index allows the correlated subquery to quickly find the maximum salary per department by scanning only the relevant department's entries in the index, avoiding a full table scan for each outer row."
+          },
+          {
+            "table": "employees",
+            "ddl": "CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);",
+            "purpose": "This covering index for the outer query allows the database to retrieve employee id, department_id, and salary directly from the index without accessing the table, and can be used to filter by salary if needed, though the primary benefit is covering the SELECT columns."
           }
         ],
-        "rationale": "Created composite covering indexes matching query join and filter columns.",
-        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "rationale": "The main bottleneck is the correlated subquery that runs per employee. By creating an index on (department_id, salary DESC), the subquery can retrieve the maximum salary per department in O(log M) time instead of scanning the entire table. The second index on (salary, department_id) is a covering index for the outer query, enabling index-only scans for the selected columns, reducing I/O. Together, these indexes transform the query from O(N*M) to O(N log M) with minimal table access.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"employees\",\n    \"detail\": \"The outer query performs a full table scan on the employees table (aliased as 'e'). This is necessary to evaluate each row against the correlated subquery, but it becomes increasingly expensive as the table grows. The scan reads every row without using an index to filter or reduce the result set.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"employees\",\n    \"detail\": \"The query uses a correlated scalar subquery that executes once for every row in the outer employees table. For each employee, it searches for the maximum salary within the same department. This results in O(N*M) complexity where N is the number of employees and M is the average department size. The subquery itself performs a search on the employees table, but without an index on (department_id, salary), it cannot efficiently find the maximum salary per department.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "raw_response": "{\n  \"recommended_indexes\": [\n    {\n      \"table\": \"employees\",\n      \"ddl\": \"CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);\",\n      \"purpose\": \"This composite index allows the correlated subquery to quickly find the maximum salary per department by scanning only the relevant department's entries in the index, avoiding a full table scan for each outer row.\"\n    },\n    {\n      \"table\": \"employees\",\n      \"ddl\": \"CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);\",\n      \"purpose\": \"This covering index for the outer query allows the database to retrieve employee id, department_id, and salary directly from the index without accessing the table, and can be used to filter by salary if needed, though the primary benefit is covering the SELECT columns.\"\n    }\n  ],\n  \"rationale\": \"The main bottleneck is the correlated subquery that runs per employee. By creating an index on (department_id, salary DESC), the subquery can retrieve the maximum salary per department in O(log M) time instead of scanning the entire table. The second index on (salary, department_id) is a covering index for the outer query, enabling index-only scans for the selected columns, reducing I/O. Together, these indexes transform the query from O(N*M) to O(N log M) with minimal table access.\"\n}",
         "applied_indexes": [
-          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
+          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
+          "CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
             "id": 2,
             "parent_id": 0,
-            "detail": "SCAN e USING COVERING INDEX idx_emp_dept_salary",
+            "detail": "SCAN e USING COVERING INDEX idx_emp_salary_dept",
             "operation_type": "SCAN",
             "table": "e",
-            "index": "idx_emp_dept_salary",
+            "index": "idx_emp_salary_dept",
             "is_scan": true,
             "is_search": false,
             "uses_temp_btree": false,
@@ -121,9 +135,10 @@
         ]
       },
       "applied_indexes": [
-        "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
+        "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
+        "CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);"
       ],
-      "elapsed_sec": 0.003
+      "elapsed_sec": 2.765
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -133,13 +148,15 @@
         {
           "attempt": 1,
           "developer_report": {
-            "rewritten_sql": "WITH dept_max AS (\n    SELECT id, department_id, salary,\n           DENSE_RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) AS rank_pos\n    FROM employees\n)\nSELECT id, department_id, salary\nFROM dept_max\nWHERE rank_pos = 1;",
+            "rewritten_sql": "WITH dept_max_salary AS (SELECT department_id, MAX(salary) AS max_salary FROM employees GROUP BY department_id) SELECT e.id, e.department_id, e.salary FROM employees e INNER JOIN dept_max_salary d ON e.department_id = d.department_id AND e.salary = d.max_salary;",
             "applied_techniques": [
-              "Window Function (DENSE_RANK)",
-              "Tie-Preserving Top-Record Extraction"
+              "CTE to eliminate correlated subquery",
+              "Join instead of correlated subquery",
+              "Use of index on (department_id, salary)"
             ],
-            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
+            "rationale": "The original query used a correlated subquery that executed for each row in the employees table, leading to O(N*M) complexity. By using a CTE that computes the maximum salary per department in a single pass (using GROUP BY), and then joining back to employees, the query becomes a single scan of employees plus a single scan of the CTE. The index on (department_id, salary DESC) can be used to efficiently compute the maximum salary per department, and the join condition uses the indexed columns. This transformation preserves the exact result set (employees with the highest salary in their department) and maintains the same output columns and aliases.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"employees\",\n    \"detail\": \"The outer query performs a full table scan on the employees table (aliased as 'e'). This is necessary to evaluate each row against the correlated subquery, but it becomes increasingly expensive as the table grows. The scan reads every row without using an index to filter or reduce the result set.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"employees\",\n    \"detail\": \"The query uses a correlated scalar subquery that executes once for every row in the outer employees table. For each employee, it searches for the maximum salary within the same department. This results in O(N*M) complexity where N is the number of employees and M is the average department size. The subquery itself performs a search on the employees table, but without an index on (department_id, salary), it cannot efficiently find the maximum salary per department.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);\",\n  \"CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+            "raw_response": "{\n  \"rewritten_sql\": \"WITH dept_max_salary AS (SELECT department_id, MAX(salary) AS max_salary FROM employees GROUP BY department_id) SELECT e.id, e.department_id, e.salary FROM employees e INNER JOIN dept_max_salary d ON e.department_id = d.department_id AND e.salary = d.max_salary;\",\n  \"applied_techniques\": [\"CTE to eliminate correlated subquery\", \"Join instead of correlated subquery\", \"Use of index on (department_id, salary)\"],\n  \"rationale\": \"The original query used a correlated subquery that executed for each row in the employees table, leading to O(N*M) complexity. By using a CTE that computes the maximum salary per department in a single pass (using GROUP BY), and then joining back to employees, the query becomes a single scan of employees plus a single scan of the CTE. The index on (department_id, salary DESC) can be used to efficiently compute the maximum salary per department, and the join condition uses the indexed columns. This transformation preserves the exact result set (employees with the highest salary in their department) and maintains the same output columns and aliases.\"\n}"
           },
           "verification_report": {
             "status": "PASSED",
@@ -147,9 +164,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 1.034,
-            "optimized_time_ms": 2.595,
-            "speedup_ratio": 0.4,
+            "original_time_ms": 7.814,
+            "optimized_time_ms": 1.581,
+            "speedup_ratio": 4.94,
             "original_row_count": 40,
             "optimized_row_count": 40,
             "verification_message": "Result sets match perfectly as multiset (40 rows).",
@@ -157,7 +174,7 @@
               {
                 "id": 2,
                 "parent_id": 0,
-                "detail": "CO-ROUTINE dept_max",
+                "detail": "CO-ROUTINE dept_max_salary",
                 "operation_type": "OTHER",
                 "table": null,
                 "index": null,
@@ -167,20 +184,8 @@
                 "uses_covering_index": false
               },
               {
-                "id": 5,
-                "parent_id": 2,
-                "detail": "CO-ROUTINE (subquery-3)",
-                "operation_type": "SUBQUERY",
-                "table": null,
-                "index": null,
-                "is_scan": false,
-                "is_search": false,
-                "uses_temp_btree": false,
-                "uses_covering_index": false
-              },
-              {
                 "id": 8,
-                "parent_id": 5,
+                "parent_id": 2,
                 "detail": "SCAN employees USING COVERING INDEX idx_emp_dept_salary",
                 "operation_type": "SCAN",
                 "table": "employees",
@@ -191,11 +196,11 @@
                 "uses_covering_index": true
               },
               {
-                "id": 26,
-                "parent_id": 2,
-                "detail": "SCAN (subquery-3)",
+                "id": 41,
+                "parent_id": 0,
+                "detail": "SCAN d",
                 "operation_type": "SCAN",
-                "table": null,
+                "table": "d",
                 "index": null,
                 "is_scan": true,
                 "is_search": false,
@@ -203,20 +208,20 @@
                 "uses_covering_index": false
               },
               {
-                "id": 100,
+                "id": 44,
                 "parent_id": 0,
-                "detail": "SCAN dept_max",
-                "operation_type": "SCAN",
-                "table": "dept_max",
-                "index": null,
-                "is_scan": true,
-                "is_search": false,
+                "detail": "SEARCH e USING COVERING INDEX idx_emp_salary_dept (salary=? AND department_id=?)",
+                "operation_type": "SEARCH",
+                "table": "e",
+                "index": "idx_emp_salary_dept",
+                "is_scan": false,
+                "is_search": true,
                 "uses_temp_btree": false,
-                "uses_covering_index": false
+                "uses_covering_index": true
               }
             ]
           },
-          "elapsed_sec": 0.004
+          "elapsed_sec": 2.88
         }
       ]
     }
@@ -275,43 +280,51 @@
         "identified_bottlenecks": [
           {
             "type": "FULL_TABLE_SCAN",
-            "table": "e",
-            "detail": "Sequential scan on e table across full dataset.",
+            "table": "employees",
+            "detail": "The outer query performs a full table scan on the employees table (aliased as 'e'). This is necessary to evaluate each row against the correlated subquery, but it becomes increasingly expensive as the table grows. The scan reads every row without using an index to filter or reduce the result set.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "CORRELATED_SUBQUERY",
+            "table": "employees",
+            "detail": "The query uses a correlated scalar subquery that executes once for every row in the outer employees table. For each employee, it searches for the maximum salary within the same department. This results in O(N*M) complexity where N is the number of employees and M is the average department size. The subquery itself performs a search on the employees table, but without an index on (department_id, salary), it cannot efficiently find the maximum salary per department.",
             "severity": "HIGH"
           }
         ],
         "critical_tables": [
-          "e"
+          "employees"
         ],
         "has_temp_btree_sort": false,
-        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions."
+        "optimization_strategy": "Create a composite index on employees(department_id, salary) to make the correlated subquery efficient. Additionally, consider rewriting the query using a window function (ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC)) or a self-join with a derived table that pre-computes the maximum salary per department, which would eliminate the need for the correlated subquery and reduce the overall complexity to a single pass with proper indexing."
       }
     },
     {
       "test_case_id": "TC-13",
       "test_case_name": "top_record_tie_trap_max_salary",
       "agent_id": "IndexArchitect",
-      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"employees\",\n    \"detail\": \"The outer query performs a full table scan on the employees table (aliased as 'e'). This is necessary to evaluate each row against the correlated subquery, but it becomes increasingly expensive as the table grows. The scan reads every row without using an index to filter or reduce the result set.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"employees\",\n    \"detail\": \"The query uses a correlated scalar subquery that executes once for every row in the outer employees table. For each employee, it searches for the maximum salary within the same department. This results in O(N*M) complexity where N is the number of employees and M is the average department size. The subquery itself performs a search on the employees table, but without an index on (department_id, salary), it cannot efficiently find the maximum salary per department.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
       "tool_called": "DatabaseSandbox.apply_index",
       "tool_arguments": {
         "db_path": "sandbox_TC-13.db",
         "recommended_indexes": [
-          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
+          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
+          "CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);"
         ]
       },
       "tool_output": {
         "applied_indexes": [
-          "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
+          "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
+          "CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
             "id": 2,
             "parent_id": 0,
-            "detail": "SCAN e USING COVERING INDEX idx_emp_dept_salary",
+            "detail": "SCAN e USING COVERING INDEX idx_emp_salary_dept",
             "operation_type": "SCAN",
             "table": "e",
-            "index": "idx_emp_dept_salary",
+            "index": "idx_emp_salary_dept",
             "is_scan": true,
             "is_search": false,
             "uses_temp_btree": false,
@@ -348,32 +361,37 @@
         "recommended_indexes": [
           {
             "table": "employees",
-            "ddl": "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);",
-            "purpose": "Index department grouping with descending salary order."
+            "ddl": "CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);",
+            "purpose": "This composite index allows the correlated subquery to quickly find the maximum salary per department by scanning only the relevant department's entries in the index, avoiding a full table scan for each outer row."
+          },
+          {
+            "table": "employees",
+            "ddl": "CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);",
+            "purpose": "This covering index for the outer query allows the database to retrieve employee id, department_id, and salary directly from the index without accessing the table, and can be used to filter by salary if needed, though the primary benefit is covering the SELECT columns."
           }
         ],
-        "rationale": "Created composite covering indexes matching query join and filter columns."
+        "rationale": "The main bottleneck is the correlated subquery that runs per employee. By creating an index on (department_id, salary DESC), the subquery can retrieve the maximum salary per department in O(log M) time instead of scanning the entire table. The second index on (salary, department_id) is a covering index for the outer query, enabling index-only scans for the selected columns, reducing I/O. Together, these indexes transform the query from O(N*M) to O(N log M) with minimal table access."
       }
     },
     {
       "test_case_id": "TC-13",
       "test_case_name": "top_record_tie_trap_max_salary",
       "agent_id": "Developer",
-      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"e\",\n    \"detail\": \"Sequential scan on e table across full dataset.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"employees\",\n    \"detail\": \"The outer query performs a full table scan on the employees table (aliased as 'e'). This is necessary to evaluate each row against the correlated subquery, but it becomes increasingly expensive as the table grows. The scan reads every row without using an index to filter or reduce the result set.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"CORRELATED_SUBQUERY\",\n    \"table\": \"employees\",\n    \"detail\": \"The query uses a correlated scalar subquery that executes once for every row in the outer employees table. For each employee, it searches for the maximum salary within the same department. This results in O(N*M) complexity where N is the number of employees and M is the average department size. The subquery itself performs a search on the employees table, but without an index on (department_id, salary), it cannot efficiently find the maximum salary per department.\",\n    \"severity\": \"HIGH\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_emp_dept_salary ON employees (department_id, salary DESC);\",\n  \"CREATE INDEX idx_emp_salary_dept ON employees (salary, department_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
       "tool_called": "DatabaseSandbox.verify",
       "tool_arguments": {
         "db_path": "sandbox_TC-13.db",
         "original_query": "SELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);",
-        "optimized_query": "WITH dept_max AS (\n    SELECT id, department_id, salary,\n           DENSE_RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) AS rank_pos\n    FROM employees\n)\nSELECT id, department_id, salary\nFROM dept_max\nWHERE rank_pos = 1;",
+        "optimized_query": "WITH dept_max_salary AS (SELECT department_id, MAX(salary) AS max_salary FROM employees GROUP BY department_id) SELECT e.id, e.department_id, e.salary FROM employees e INNER JOIN dept_max_salary d ON e.department_id = d.department_id AND e.salary = d.max_salary;",
         "timeout_sec": 10.0
       },
       "tool_output": {
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (40 rows).",
-        "original_time_ms": 1.034,
-        "optimized_time_ms": 2.595,
-        "speedup_ratio": 0.4,
+        "original_time_ms": 7.814,
+        "optimized_time_ms": 1.581,
+        "speedup_ratio": 4.94,
         "original_row_count": 40,
         "optimized_row_count": 40,
         "error_details": null,
@@ -381,12 +399,13 @@
       },
       "retries_triggered": 0,
       "llm_output": {
-        "rewritten_sql": "WITH dept_max AS (\n    SELECT id, department_id, salary,\n           DENSE_RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) AS rank_pos\n    FROM employees\n)\nSELECT id, department_id, salary\nFROM dept_max\nWHERE rank_pos = 1;",
+        "rewritten_sql": "WITH dept_max_salary AS (SELECT department_id, MAX(salary) AS max_salary FROM employees GROUP BY department_id) SELECT e.id, e.department_id, e.salary FROM employees e INNER JOIN dept_max_salary d ON e.department_id = d.department_id AND e.salary = d.max_salary;",
         "applied_techniques": [
-          "Window Function (DENSE_RANK)",
-          "Tie-Preserving Top-Record Extraction"
+          "CTE to eliminate correlated subquery",
+          "Join instead of correlated subquery",
+          "Use of index on (department_id, salary)"
         ],
-        "rationale": "Applied targeted relational rewrites and SARGable range predicates."
+        "rationale": "The original query used a correlated subquery that executed for each row in the employees table, leading to O(N*M) complexity. By using a CTE that computes the maximum salary per department in a single pass (using GROUP BY), and then joining back to employees, the query becomes a single scan of employees plus a single scan of the CTE. The index on (department_id, salary DESC) can be used to efficiently compute the maximum salary per department, and the join condition uses the indexed columns. This transformation preserves the exact result set (employees with the highest salary in their department) and maintains the same output columns and aliases."
       }
     }
   ]

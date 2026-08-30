@@ -2,8 +2,8 @@
   "test_case_id": "TC-02",
   "test_case_name": "non_sargable_date_trap",
   "anti_pattern": "The Non-SARGable Trap: Date formatting function strftime() in WHERE clause",
-  "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:04:41Z",
+  "model": "deepseek-chat",
+  "start_time": "2026-08-30T14:05:46Z",
   "original_query": "SELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;",
   "stages": {
     "profiler": {
@@ -50,13 +50,19 @@
           {
             "type": "FULL_TABLE_SCAN",
             "table": "events",
-            "detail": "Sequential scan on events table across full dataset.",
+            "detail": "The query performs a full table scan on the events table because the WHERE clause uses strftime('%Y', created_at) = '2025', which is non-sargable. This prevents the use of any index on created_at, forcing SQLite to scan every row in the table.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "NON_SARGABLE_PREDICATE",
+            "table": "events",
+            "detail": "The predicate strftime('%Y', created_at) = '2025' applies a function to the column, making it impossible to use a standard index on created_at. This is the root cause of the full table scan.",
             "severity": "HIGH"
           },
           {
             "type": "TEMP_BTREE_SORT",
-            "table": null,
-            "detail": "Temporary B-Tree created for sorting or grouping.",
+            "table": "events",
+            "detail": "The query uses a temporary B-tree for GROUP BY (user_id, event_type) and another for ORDER BY event_count DESC. These operations require sorting and grouping the entire result set, which is expensive and adds overhead.",
             "severity": "MEDIUM"
           }
         ],
@@ -64,53 +70,49 @@
           "events"
         ],
         "has_temp_btree_sort": true,
-        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
-        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 8,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN events\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"events\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 13,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR GROUP BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 57,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
+        "optimization_strategy": "To optimize this query, consider the following: 1) Store created_at in a date format that allows range queries (e.g., ISO-8601 text like 'YYYY-MM-DD') and use a range predicate like created_at >= '2025-01-01' AND created_at < '2026-01-01' to make the predicate sargable. 2) Create a composite index on (created_at, user_id, event_type) to support the WHERE and GROUP BY clauses, potentially allowing an index-only scan. 3) If the events table is very large, consider partitioning or using a covering index to reduce I/O. 4) The HAVING COUNT(*) >= 1 is redundant since GROUP BY already implies at least one row per group; remove it to simplify the query.",
+        "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 8,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN events\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"events\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 13,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR GROUP BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 57,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object.",
+        "raw_response": "{\n  \"identified_bottlenecks\": [\n    {\n      \"type\": \"FULL_TABLE_SCAN\",\n      \"table\": \"events\",\n      \"detail\": \"The query performs a full table scan on the events table because the WHERE clause uses strftime('%Y', created_at) = '2025', which is non-sargable. This prevents the use of any index on created_at, forcing SQLite to scan every row in the table.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"NON_SARGABLE_PREDICATE\",\n      \"table\": \"events\",\n      \"detail\": \"The predicate strftime('%Y', created_at) = '2025' applies a function to the column, making it impossible to use a standard index on created_at. This is the root cause of the full table scan.\",\n      \"severity\": \"HIGH\"\n    },\n    {\n      \"type\": \"TEMP_BTREE_SORT\",\n      \"table\": \"events\",\n      \"detail\": \"The query uses a temporary B-tree for GROUP BY (user_id, event_type) and another for ORDER BY event_count DESC. These operations require sorting and grouping the entire result set, which is expensive and adds overhead.\",\n      \"severity\": \"MEDIUM\"\n    }\n  ],\n  \"critical_tables\": [\"events\"],\n  \"has_temp_btree_sort\": true,\n  \"optimization_strategy\": \"To optimize this query, consider the following: 1) Store created_at in a date format that allows range queries (e.g., ISO-8601 text like 'YYYY-MM-DD') and use a range predicate like created_at >= '2025-01-01' AND created_at < '2026-01-01' to make the predicate sargable. 2) Create a composite index on (created_at, user_id, event_type) to support the WHERE and GROUP BY clauses, potentially allowing an index-only scan. 3) If the events table is very large, consider partitioning or using a covering index to reduce I/O. 4) The HAVING COUNT(*) >= 1 is redundant since GROUP BY already implies at least one row per group; remove it to simplify the query.\"\n}"
       },
-      "elapsed_sec": 0.0
+      "elapsed_sec": 3.864
     },
     "index_architect": {
       "architect_report": {
         "recommended_indexes": [
           {
             "table": "events",
-            "ddl": "CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);",
-            "purpose": "Covering range index on timestamp and event type."
+            "ddl": "CREATE INDEX idx_events_created_at_user_event ON events (created_at, user_id, event_type);",
+            "purpose": "Enables sargable range scan on created_at for year 2025 (using created_at >= '2025-01-01' AND created_at < '2026-01-01') and covers the GROUP BY columns to avoid extra lookups."
+          },
+          {
+            "table": "events",
+            "ddl": "CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);",
+            "purpose": "Provides a covering index for the GROUP BY (user_id, event_type) and allows filtering by created_at range if needed, reducing temp B-tree usage."
           }
         ],
-        "rationale": "Created composite covering indexes matching query join and filter columns.",
-        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"Sequential scan on events table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "rationale": "The primary bottleneck is the non-sargable strftime predicate causing a full table scan. By rewriting the query to use a range predicate on created_at (e.g., created_at >= '2025-01-01' AND created_at < '2026-01-01'), a composite index on (created_at, user_id, event_type) can be used for both filtering and covering the SELECT/GROUP BY columns. The second index on (user_id, event_type, created_at) supports the GROUP BY and can also be used for the range filter if the optimizer chooses it, potentially eliminating the need for a temp B-tree for grouping. Both indexes are designed to be covering, avoiding table lookups and reducing sorting overhead.",
+        "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"The query performs a full table scan on the events table because the WHERE clause uses strftime('%Y', created_at) = '2025', which is non-sargable. This prevents the use of any index on created_at, forcing SQLite to scan every row in the table.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"events\",\n    \"detail\": \"The predicate strftime('%Y', created_at) = '2025' applies a function to the column, making it impossible to use a standard index on created_at. This is the root cause of the full table scan.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": \"events\",\n    \"detail\": \"The query uses a temporary B-tree for GROUP BY (user_id, event_type) and another for ORDER BY event_count DESC. These operations require sorting and grouping the entire result set, which is expensive and adds overhead.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+        "raw_response": "{\n  \"recommended_indexes\": [\n    {\n      \"table\": \"events\",\n      \"ddl\": \"CREATE INDEX idx_events_created_at_user_event ON events (created_at, user_id, event_type);\",\n      \"purpose\": \"Enables sargable range scan on created_at for year 2025 (using created_at >= '2025-01-01' AND created_at < '2026-01-01') and covers the GROUP BY columns to avoid extra lookups.\"\n    },\n    {\n      \"table\": \"events\",\n      \"ddl\": \"CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);\",\n      \"purpose\": \"Provides a covering index for the GROUP BY (user_id, event_type) and allows filtering by created_at range if needed, reducing temp B-tree usage.\"\n    }\n  ],\n  \"rationale\": \"The primary bottleneck is the non-sargable strftime predicate causing a full table scan. By rewriting the query to use a range predicate on created_at (e.g., created_at >= '2025-01-01' AND created_at < '2026-01-01'), a composite index on (created_at, user_id, event_type) can be used for both filtering and covering the SELECT/GROUP BY columns. The second index on (user_id, event_type, created_at) supports the GROUP BY and can also be used for the range filter if the optimizer chooses it, potentially eliminating the need for a temp B-tree for grouping. Both indexes are designed to be covering, avoiding table lookups and reducing sorting overhead.\"\n}",
         "applied_indexes": [
-          "CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);"
+          "CREATE INDEX idx_events_created_at_user_event ON events (created_at, user_id, event_type);",
+          "CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
             "id": 8,
             "parent_id": 0,
-            "detail": "SCAN events USING COVERING INDEX idx_events_created_type",
+            "detail": "SCAN events USING COVERING INDEX idx_events_user_event_created",
             "operation_type": "SCAN",
             "table": "events",
-            "index": "idx_events_created_type",
+            "index": "idx_events_user_event_created",
             "is_scan": true,
             "is_search": false,
             "uses_temp_btree": false,
             "uses_covering_index": true
           },
           {
-            "id": 13,
-            "parent_id": 0,
-            "detail": "USE TEMP B-TREE FOR GROUP BY",
-            "operation_type": "TEMP_BTREE",
-            "table": null,
-            "index": null,
-            "is_scan": false,
-            "is_search": false,
-            "uses_temp_btree": true,
-            "uses_covering_index": false
-          },
-          {
-            "id": 57,
+            "id": 48,
             "parent_id": 0,
             "detail": "USE TEMP B-TREE FOR ORDER BY",
             "operation_type": "TEMP_BTREE",
@@ -127,9 +129,10 @@
         ]
       },
       "applied_indexes": [
-        "CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);"
+        "CREATE INDEX idx_events_created_at_user_event ON events (created_at, user_id, event_type);",
+        "CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);"
       ],
-      "elapsed_sec": 0.023
+      "elapsed_sec": 3.776
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -139,12 +142,14 @@
         {
           "attempt": 1,
           "developer_report": {
-            "rewritten_sql": "SELECT user_id, event_type, COUNT(*) AS event_count\nFROM events\nWHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00'\nGROUP BY user_id, event_type\nHAVING COUNT(*) >= 1\nORDER BY event_count DESC\nLIMIT 25;",
+            "rewritten_sql": "SELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;",
             "applied_techniques": [
-              "SARGable Date Range Filter"
+              "Converted non-SARGable date function to range predicate",
+              "Leveraged index on created_at for efficient filtering"
             ],
-            "rationale": "Applied targeted relational rewrites and SARGable range predicates.",
-            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"Sequential scan on events table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object."
+            "rationale": "The original query used strftime('%Y', created_at) = '2025', which is non-SARGable and forces a full table scan. By replacing it with a range predicate on created_at (>= '2025-01-01' and < '2026-01-01'), the query can use the index idx_events_created_at_user_event to quickly filter rows for 2025. This reduces the data scanned and improves performance. The GROUP BY and ORDER BY remain unchanged, and the HAVING COUNT(*) >= 1 is redundant but kept for semantic equivalence.",
+            "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"The query performs a full table scan on the events table because the WHERE clause uses strftime('%Y', created_at) = '2025', which is non-sargable. This prevents the use of any index on created_at, forcing SQLite to scan every row in the table.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"events\",\n    \"detail\": \"The predicate strftime('%Y', created_at) = '2025' applies a function to the column, making it impossible to use a standard index on created_at. This is the root cause of the full table scan.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": \"events\",\n    \"detail\": \"The query uses a temporary B-tree for GROUP BY (user_id, event_type) and another for ORDER BY event_count DESC. These operations require sorting and grouping the entire result set, which is expensive and adds overhead.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_events_created_at_user_event ON events (created_at, user_id, event_type);\",\n  \"CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+            "raw_response": "{\n  \"rewritten_sql\": \"SELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\",\n  \"applied_techniques\": [\n    \"Converted non-SARGable date function to range predicate\",\n    \"Leveraged index on created_at for efficient filtering\"\n  ],\n  \"rationale\": \"The original query used strftime('%Y', created_at) = '2025', which is non-SARGable and forces a full table scan. By replacing it with a range predicate on created_at (>= '2025-01-01' and < '2026-01-01'), the query can use the index idx_events_created_at_user_event to quickly filter rows for 2025. This reduces the data scanned and improves performance. The GROUP BY and ORDER BY remain unchanged, and the HAVING COUNT(*) >= 1 is redundant but kept for semantic equivalence.\"\n}"
           },
           "verification_report": {
             "status": "PASSED",
@@ -152,9 +157,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 11.236,
-            "optimized_time_ms": 5.418,
-            "speedup_ratio": 2.07,
+            "original_time_ms": 33.59,
+            "optimized_time_ms": 11.712,
+            "speedup_ratio": 2.87,
             "original_row_count": 25,
             "optimized_row_count": 25,
             "verification_message": "Result sets match perfectly as multiset (25 rows).",
@@ -162,10 +167,10 @@
               {
                 "id": 8,
                 "parent_id": 0,
-                "detail": "SEARCH events USING COVERING INDEX idx_events_created_type (created_at>? AND created_at<?)",
+                "detail": "SEARCH events USING COVERING INDEX idx_events_created_at_user_event (created_at>? AND created_at<?)",
                 "operation_type": "SEARCH",
                 "table": "events",
-                "index": "idx_events_created_type",
+                "index": "idx_events_created_at_user_event",
                 "is_scan": false,
                 "is_search": true,
                 "uses_temp_btree": false,
@@ -197,7 +202,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.017
+          "elapsed_sec": 2.714
         }
       ]
     }
@@ -257,13 +262,19 @@
           {
             "type": "FULL_TABLE_SCAN",
             "table": "events",
-            "detail": "Sequential scan on events table across full dataset.",
+            "detail": "The query performs a full table scan on the events table because the WHERE clause uses strftime('%Y', created_at) = '2025', which is non-sargable. This prevents the use of any index on created_at, forcing SQLite to scan every row in the table.",
+            "severity": "HIGH"
+          },
+          {
+            "type": "NON_SARGABLE_PREDICATE",
+            "table": "events",
+            "detail": "The predicate strftime('%Y', created_at) = '2025' applies a function to the column, making it impossible to use a standard index on created_at. This is the root cause of the full table scan.",
             "severity": "HIGH"
           },
           {
             "type": "TEMP_BTREE_SORT",
-            "table": null,
-            "detail": "Temporary B-Tree created for sorting or grouping.",
+            "table": "events",
+            "detail": "The query uses a temporary B-tree for GROUP BY (user_id, event_type) and another for ORDER BY event_count DESC. These operations require sorting and grouping the entire result set, which is expensive and adds overhead.",
             "severity": "MEDIUM"
           }
         ],
@@ -271,53 +282,43 @@
           "events"
         ],
         "has_temp_btree_sort": true,
-        "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions."
+        "optimization_strategy": "To optimize this query, consider the following: 1) Store created_at in a date format that allows range queries (e.g., ISO-8601 text like 'YYYY-MM-DD') and use a range predicate like created_at >= '2025-01-01' AND created_at < '2026-01-01' to make the predicate sargable. 2) Create a composite index on (created_at, user_id, event_type) to support the WHERE and GROUP BY clauses, potentially allowing an index-only scan. 3) If the events table is very large, consider partitioning or using a covering index to reduce I/O. 4) The HAVING COUNT(*) >= 1 is redundant since GROUP BY already implies at least one row per group; remove it to simplify the query."
       }
     },
     {
       "test_case_id": "TC-02",
       "test_case_name": "non_sargable_date_trap",
       "agent_id": "IndexArchitect",
-      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"Sequential scan on events table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
+      "raw_prompt": "You are a Principal Database Index Architect. Given the schema, SQL query, and profiler bottleneck report, design optimal composite or covering indexes to convert sequential table scans into fast B-Tree index lookups.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\n\n### PROFILER BOTTLENECKS:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"The query performs a full table scan on the events table because the WHERE clause uses strftime('%Y', created_at) = '2025', which is non-sargable. This prevents the use of any index on created_at, forcing SQLite to scan every row in the table.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"events\",\n    \"detail\": \"The predicate strftime('%Y', created_at) = '2025' applies a function to the column, making it impossible to use a standard index on created_at. This is the root cause of the full table scan.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": \"events\",\n    \"detail\": \"The query uses a temporary B-tree for GROUP BY (user_id, event_type) and another for ORDER BY event_count DESC. These operations require sorting and grouping the entire result set, which is expensive and adds overhead.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"recommended_indexes\": [\n    {\"table\": \"table_name\", \"ddl\": \"CREATE INDEX idx_name ON table (col1, col2);\", \"purpose\": \"Explanation\"}\n  ],\n  \"rationale\": \"High-level rationale for indexing choices\"\n}\nReturn ONLY the JSON object. Do not recommend more than 3 high-impact indexes.",
       "tool_called": "DatabaseSandbox.apply_index",
       "tool_arguments": {
         "db_path": "sandbox_TC-02.db",
         "recommended_indexes": [
-          "CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);"
+          "CREATE INDEX idx_events_created_at_user_event ON events (created_at, user_id, event_type);",
+          "CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);"
         ]
       },
       "tool_output": {
         "applied_indexes": [
-          "CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);"
+          "CREATE INDEX idx_events_created_at_user_event ON events (created_at, user_id, event_type);",
+          "CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);"
         ],
         "failed_indexes": [],
         "post_index_plan": [
           {
             "id": 8,
             "parent_id": 0,
-            "detail": "SCAN events USING COVERING INDEX idx_events_created_type",
+            "detail": "SCAN events USING COVERING INDEX idx_events_user_event_created",
             "operation_type": "SCAN",
             "table": "events",
-            "index": "idx_events_created_type",
+            "index": "idx_events_user_event_created",
             "is_scan": true,
             "is_search": false,
             "uses_temp_btree": false,
             "uses_covering_index": true
           },
           {
-            "id": 13,
-            "parent_id": 0,
-            "detail": "USE TEMP B-TREE FOR GROUP BY",
-            "operation_type": "TEMP_BTREE",
-            "table": null,
-            "index": null,
-            "is_scan": false,
-            "is_search": false,
-            "uses_temp_btree": true,
-            "uses_covering_index": false
-          },
-          {
-            "id": 57,
+            "id": 48,
             "parent_id": 0,
             "detail": "USE TEMP B-TREE FOR ORDER BY",
             "operation_type": "TEMP_BTREE",
@@ -335,32 +336,37 @@
         "recommended_indexes": [
           {
             "table": "events",
-            "ddl": "CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);",
-            "purpose": "Covering range index on timestamp and event type."
+            "ddl": "CREATE INDEX idx_events_created_at_user_event ON events (created_at, user_id, event_type);",
+            "purpose": "Enables sargable range scan on created_at for year 2025 (using created_at >= '2025-01-01' AND created_at < '2026-01-01') and covers the GROUP BY columns to avoid extra lookups."
+          },
+          {
+            "table": "events",
+            "ddl": "CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);",
+            "purpose": "Provides a covering index for the GROUP BY (user_id, event_type) and allows filtering by created_at range if needed, reducing temp B-tree usage."
           }
         ],
-        "rationale": "Created composite covering indexes matching query join and filter columns."
+        "rationale": "The primary bottleneck is the non-sargable strftime predicate causing a full table scan. By rewriting the query to use a range predicate on created_at (e.g., created_at >= '2025-01-01' AND created_at < '2026-01-01'), a composite index on (created_at, user_id, event_type) can be used for both filtering and covering the SELECT/GROUP BY columns. The second index on (user_id, event_type, created_at) supports the GROUP BY and can also be used for the range filter if the optimizer chooses it, potentially eliminating the need for a temp B-tree for grouping. Both indexes are designed to be covering, avoiding table lookups and reducing sorting overhead."
       }
     },
     {
       "test_case_id": "TC-02",
       "test_case_name": "non_sargable_date_trap",
       "agent_id": "Developer",
-      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"Sequential scan on events table across full dataset.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": null,\n    \"detail\": \"Temporary B-Tree created for sorting or grouping.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX IF NOT EXISTS idx_events_created_type ON events (created_at, event_type, user_id);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
+      "raw_prompt": "You are an expert SQL Developer & Query Performance Optimizer. Rewrite the following SQL query to maximize execution speed on SQLite without altering the result set semantics.\n\n### OPTIMIZATION RULES:\n1. Rewrite quadratic correlated subqueries into CTEs or Window Functions (e.g. AVG(...) OVER(...), DENSE_RANK() OVER(...)).\n2. Convert non-SARGable date functions (e.g. strftime('%Y', created_at) = '2025') into SARGable range predicates (created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00').\n3. If string case transforms like UPPER(col) = 'VAL' exist, be careful: preserve case sensitivity or use COLLATE NOCASE if appropriate so rows are not lost.\n4. Maintain exact column outputs, aliases, and order specifications.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### ORIGINAL SQL QUERY:\nSELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;\n\n### PROFILER BOTTLENECK REPORT:\n[\n  {\n    \"type\": \"FULL_TABLE_SCAN\",\n    \"table\": \"events\",\n    \"detail\": \"The query performs a full table scan on the events table because the WHERE clause uses strftime('%Y', created_at) = '2025', which is non-sargable. This prevents the use of any index on created_at, forcing SQLite to scan every row in the table.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"NON_SARGABLE_PREDICATE\",\n    \"table\": \"events\",\n    \"detail\": \"The predicate strftime('%Y', created_at) = '2025' applies a function to the column, making it impossible to use a standard index on created_at. This is the root cause of the full table scan.\",\n    \"severity\": \"HIGH\"\n  },\n  {\n    \"type\": \"TEMP_BTREE_SORT\",\n    \"table\": \"events\",\n    \"detail\": \"The query uses a temporary B-tree for GROUP BY (user_id, event_type) and another for ORDER BY event_count DESC. These operations require sorting and grouping the entire result set, which is expensive and adds overhead.\",\n    \"severity\": \"MEDIUM\"\n  }\n]\n\n### APPLIED INDEXES:\n[\n  \"CREATE INDEX idx_events_created_at_user_event ON events (created_at, user_id, event_type);\",\n  \"CREATE INDEX idx_events_user_event_created ON events (user_id, event_type, created_at);\"\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"rewritten_sql\": \"SELECT ...;\",\n  \"applied_techniques\": [\"list\", \"of\", \"techniques\"],\n  \"rationale\": \"Explanation of query transformations made\"\n}\nReturn ONLY the JSON object.",
       "tool_called": "DatabaseSandbox.verify",
       "tool_arguments": {
         "db_path": "sandbox_TC-02.db",
         "original_query": "SELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE strftime('%Y', created_at) = '2025' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;",
-        "optimized_query": "SELECT user_id, event_type, COUNT(*) AS event_count\nFROM events\nWHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00'\nGROUP BY user_id, event_type\nHAVING COUNT(*) >= 1\nORDER BY event_count DESC\nLIMIT 25;",
+        "optimized_query": "SELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;",
         "timeout_sec": 10.0
       },
       "tool_output": {
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (25 rows).",
-        "original_time_ms": 11.236,
-        "optimized_time_ms": 5.418,
-        "speedup_ratio": 2.07,
+        "original_time_ms": 33.59,
+        "optimized_time_ms": 11.712,
+        "speedup_ratio": 2.87,
         "original_row_count": 25,
         "optimized_row_count": 25,
         "error_details": null,
@@ -368,11 +374,12 @@
       },
       "retries_triggered": 0,
       "llm_output": {
-        "rewritten_sql": "SELECT user_id, event_type, COUNT(*) AS event_count\nFROM events\nWHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00'\nGROUP BY user_id, event_type\nHAVING COUNT(*) >= 1\nORDER BY event_count DESC\nLIMIT 25;",
+        "rewritten_sql": "SELECT user_id, event_type, COUNT(*) AS event_count FROM events WHERE created_at >= '2025-01-01 00:00:00' AND created_at < '2026-01-01 00:00:00' GROUP BY user_id, event_type HAVING COUNT(*) >= 1 ORDER BY event_count DESC LIMIT 25;",
         "applied_techniques": [
-          "SARGable Date Range Filter"
+          "Converted non-SARGable date function to range predicate",
+          "Leveraged index on created_at for efficient filtering"
         ],
-        "rationale": "Applied targeted relational rewrites and SARGable range predicates."
+        "rationale": "The original query used strftime('%Y', created_at) = '2025', which is non-SARGable and forces a full table scan. By replacing it with a range predicate on created_at (>= '2025-01-01' and < '2026-01-01'), the query can use the index idx_events_created_at_user_event to quickly filter rows for 2025. This reduces the data scanned and improves performance. The GROUP BY and ORDER BY remain unchanged, and the HAVING COUNT(*) >= 1 is redundant but kept for semantic equivalence."
       }
     }
   ]

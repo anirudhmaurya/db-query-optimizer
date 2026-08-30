@@ -1,13 +1,13 @@
 {
-  "timestamp": "2026-08-30T13:05:34Z",
+  "timestamp": "2026-08-30T14:03:15Z",
   "orchestrator_model": "mock-orchestrator",
   "database": "sandbox.db",
-  "total_cases": 10,
-  "successful_cases": 10,
+  "total_cases": 13,
+  "successful_cases": 13,
   "failed_cases": 0,
   "success_rate_pct": 100.0,
-  "average_speedup_on_verified": 2.51,
-  "max_speedup": 11.9,
+  "average_speedup_on_verified": 1.9,
+  "max_speedup": 12.13,
   "trajectories_file": "trajectories.json",
   "trajectories_directory": "trajectories",
   "results": [
@@ -27,9 +27,9 @@
       "applied_techniques": [
         "Covering Index Alignment"
       ],
-      "original_execution_time_ms": 3.97,
-      "optimized_execution_time_ms": 3.364,
-      "speedup_ratio": 1.18,
+      "original_execution_time_ms": 3.584,
+      "optimized_execution_time_ms": 3.346,
+      "speedup_ratio": 1.07,
       "original_row_count": 50,
       "optimized_row_count": 50,
       "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -50,9 +50,9 @@
       "applied_techniques": [
         "SARGable Date Range Filter"
       ],
-      "original_execution_time_ms": 12.137,
-      "optimized_execution_time_ms": 5.682,
-      "speedup_ratio": 2.14,
+      "original_execution_time_ms": 11.353,
+      "optimized_execution_time_ms": 5.373,
+      "speedup_ratio": 2.11,
       "original_row_count": 25,
       "optimized_row_count": 25,
       "verification_message": "Result sets match perfectly as multiset (25 rows).",
@@ -74,12 +74,12 @@
         "Window Function (AVG OVER PARTITION)",
         "CTE Common Table Expression"
       ],
-      "original_execution_time_ms": 57.957,
-      "optimized_execution_time_ms": 4.869,
-      "speedup_ratio": 11.9,
-      "original_row_count": 1506,
-      "optimized_row_count": 1506,
-      "verification_message": "Result sets match perfectly as multiset (1506 rows).",
+      "original_execution_time_ms": 56.512,
+      "optimized_execution_time_ms": 4.658,
+      "speedup_ratio": 12.13,
+      "original_row_count": 1411,
+      "optimized_row_count": 1411,
+      "verification_message": "Result sets match perfectly as multiset (1411 rows).",
       "fallback_triggered": false
     },
     {
@@ -97,9 +97,9 @@
       "applied_techniques": [
         "Covering Index Alignment"
       ],
-      "original_execution_time_ms": 41.336,
-      "optimized_execution_time_ms": 41.683,
-      "speedup_ratio": 0.99,
+      "original_execution_time_ms": 38.078,
+      "optimized_execution_time_ms": 49.752,
+      "speedup_ratio": 0.77,
       "original_row_count": 50,
       "optimized_row_count": 50,
       "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -120,9 +120,9 @@
       "applied_techniques": [
         "Covering Index Alignment"
       ],
-      "original_execution_time_ms": 10.784,
-      "optimized_execution_time_ms": 10.775,
-      "speedup_ratio": 1.0,
+      "original_execution_time_ms": 10.138,
+      "optimized_execution_time_ms": 10.217,
+      "speedup_ratio": 0.99,
       "original_row_count": 25,
       "optimized_row_count": 25,
       "verification_message": "Result sets match perfectly as multiset (25 rows).",
@@ -144,9 +144,9 @@
         "NOT EXISTS Anti-Join Optimization",
         "Index-Supported Lookup"
       ],
-      "original_execution_time_ms": 0.488,
-      "optimized_execution_time_ms": 0.386,
-      "speedup_ratio": 1.26,
+      "original_execution_time_ms": 0.464,
+      "optimized_execution_time_ms": 0.37,
+      "speedup_ratio": 1.25,
       "original_row_count": 50,
       "optimized_row_count": 50,
       "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -168,9 +168,9 @@
         "SARGable Date Comparison",
         "Indexed EXISTS Scan"
       ],
-      "original_execution_time_ms": 82.682,
-      "optimized_execution_time_ms": 84.009,
-      "speedup_ratio": 0.98,
+      "original_execution_time_ms": 83.099,
+      "optimized_execution_time_ms": 82.408,
+      "speedup_ratio": 1.01,
       "original_row_count": 100,
       "optimized_row_count": 100,
       "verification_message": "Result sets match perfectly as multiset (100 rows).",
@@ -191,9 +191,9 @@
       "applied_techniques": [
         "Covering Index Alignment"
       ],
-      "original_execution_time_ms": 8.927,
-      "optimized_execution_time_ms": 8.691,
-      "speedup_ratio": 1.03,
+      "original_execution_time_ms": 8.531,
+      "optimized_execution_time_ms": 12.602,
+      "speedup_ratio": 0.68,
       "original_row_count": 50,
       "optimized_row_count": 50,
       "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -205,23 +205,23 @@
       "anti_pattern": "Correlated subquery ranking simulation instead of DENSE_RANK()",
       "status": "SUCCESS",
       "is_valid": true,
-      "total_attempts": 1,
+      "total_attempts": 3,
       "original_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
-      "optimized_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
+      "optimized_sql": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
       "applied_indexes": [
         "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
       ],
       "applied_techniques": [
-        "Window Function (DENSE_RANK)",
-        "CTE Elimination of Quadratic Count"
+        "Fallback: Preserved original SQL for 100% data safety after 3 failed retries",
+        "Physical Index Optimization"
       ],
-      "original_execution_time_ms": 15.111,
-      "optimized_execution_time_ms": 4.027,
-      "speedup_ratio": 3.75,
+      "original_execution_time_ms": 14.534,
+      "optimized_execution_time_ms": 14.545,
+      "speedup_ratio": 1.0,
       "original_row_count": 60,
       "optimized_row_count": 60,
-      "verification_message": "Result sets match perfectly as multiset (60 rows).",
-      "fallback_triggered": false
+      "verification_message": "Optimization failed after 3 retries. Falling back to original SQL for safety.",
+      "fallback_triggered": true
     },
     {
       "id": "TC-10",
@@ -239,12 +239,85 @@
         "Index-Supported Join",
         "Multi-column Grouping"
       ],
-      "original_execution_time_ms": 16.676,
-      "optimized_execution_time_ms": 19.509,
-      "speedup_ratio": 0.85,
+      "original_execution_time_ms": 17.65,
+      "optimized_execution_time_ms": 17.942,
+      "speedup_ratio": 0.98,
       "original_row_count": 25,
       "optimized_row_count": 25,
       "verification_message": "Result sets match perfectly as multiset (25 rows).",
+      "fallback_triggered": false
+    },
+    {
+      "id": "TC-11",
+      "name": "fan_out_trap_duplicate_aggregation",
+      "anti_pattern": "The Fan-Out Trap: Unnested multi-table join causing metric inflation",
+      "status": "SUCCESS",
+      "is_valid": true,
+      "total_attempts": 1,
+      "original_query": "SELECT u.id, SUM(o.amount) as total_spent, COUNT(oi.id) as total_items FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id GROUP BY u.id;",
+      "optimized_sql": "WITH item_counts AS (\n    SELECT order_id, COUNT(id) AS item_cnt\n    FROM order_items\n    GROUP BY order_id\n),\nuser_orders AS (\n    SELECT o.user_id,\n           SUM(o.amount * ic.item_cnt) AS total_spent,\n           SUM(ic.item_cnt) AS total_items\n    FROM orders o\n    JOIN item_counts ic ON o.id = ic.order_id\n    GROUP BY o.user_id\n)\nSELECT u.id, uo.total_spent, uo.total_items\nFROM users u\nJOIN user_orders uo ON u.id = uo.user_id\nGROUP BY u.id;",
+      "applied_indexes": [
+        "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);",
+        "CREATE INDEX IF NOT EXISTS idx_order_items_order_qty ON order_items (order_id, quantity, unit_price);"
+      ],
+      "applied_techniques": [
+        "CTE Pre-Aggregation",
+        "Avoid Join Duplication"
+      ],
+      "original_execution_time_ms": 20.721,
+      "optimized_execution_time_ms": 16.652,
+      "speedup_ratio": 1.24,
+      "original_row_count": 7809,
+      "optimized_row_count": 7809,
+      "verification_message": "Result sets match perfectly as multiset (7809 rows).",
+      "fallback_triggered": false
+    },
+    {
+      "id": "TC-12",
+      "name": "three_valued_logic_null_trap",
+      "anti_pattern": "The Three-Valued Logic Trap: NULL foreign keys breaking NOT IN anti-joins",
+      "status": "SUCCESS",
+      "is_valid": true,
+      "total_attempts": 1,
+      "original_query": "SELECT u.id, u.name FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id);",
+      "optimized_sql": "SELECT u.id, u.name\nFROM users u\nWHERE NOT EXISTS (\n    SELECT 1 FROM orders o\n    WHERE o.user_id = u.id\n);",
+      "applied_indexes": [
+        "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);"
+      ],
+      "applied_techniques": [
+        "Indexed NOT EXISTS Anti-Join",
+        "NULL-Safe Predicate"
+      ],
+      "original_execution_time_ms": 2.437,
+      "optimized_execution_time_ms": 2.441,
+      "speedup_ratio": 1.0,
+      "original_row_count": 1975,
+      "optimized_row_count": 1975,
+      "verification_message": "Result sets match perfectly as multiset (1975 rows).",
+      "fallback_triggered": false
+    },
+    {
+      "id": "TC-13",
+      "name": "top_record_tie_trap_max_salary",
+      "anti_pattern": "The Top-Record Tie Trap: Correlated MAX() subquery with multiple top-earner ties",
+      "status": "SUCCESS",
+      "is_valid": true,
+      "total_attempts": 1,
+      "original_query": "SELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);",
+      "optimized_sql": "WITH dept_max AS (\n    SELECT id, department_id, salary,\n           DENSE_RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) AS rank_pos\n    FROM employees\n)\nSELECT id, department_id, salary\nFROM dept_max\nWHERE rank_pos = 1;",
+      "applied_indexes": [
+        "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
+      ],
+      "applied_techniques": [
+        "Window Function (DENSE_RANK)",
+        "Tie-Preserving Top-Record Extraction"
+      ],
+      "original_execution_time_ms": 0.99,
+      "optimized_execution_time_ms": 2.184,
+      "speedup_ratio": 0.45,
+      "original_row_count": 40,
+      "optimized_row_count": 40,
+      "verification_message": "Result sets match perfectly as multiset (40 rows).",
       "fallback_triggered": false
     }
   ]

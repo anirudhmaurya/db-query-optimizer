@@ -374,6 +374,50 @@ class MockProvider(LLMProvider):
                 "LIMIT 50;\n"
                 "```"
             )
+        elif "where not exists (select 1 from orders o where o.user_id = u.id)" in prompt.lower():
+            # TC-12: Three-Valued Logic Trap - Zero-shot LLM naively rewrites to NOT IN which fails on NULLs
+            return (
+                "```sql\n"
+                "SELECT u.id, u.name\n"
+                "FROM users u\n"
+                "WHERE u.id NOT IN (SELECT user_id FROM orders);\n"
+                "```"
+            )
+        elif "max(salary)" in prompt.lower() and "employees" in prompt.lower() and "department_id = e.department_id" in prompt.lower():
+            # TC-13: Top-Record Tie Trap - Zero-shot LLM naively uses ROW_NUMBER() which drops ties
+            return (
+                "```sql\n"
+                "WITH ranked AS (\n"
+                "    SELECT id, department_id, salary,\n"
+                "           ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC) AS rn\n"
+                "    FROM employees\n"
+                ")\n"
+                "SELECT id, department_id, salary\n"
+                "FROM ranked\n"
+                "WHERE rn = 1;\n"
+                "```"
+            )
+        elif "total_spent" in prompt.lower() and "total_items" in prompt.lower():
+            # TC-11: Fan-Out Trap - Zero-shot LLM naively pre-aggregates without multiplying by items count
+            return (
+                "```sql\n"
+                "WITH user_orders AS (\n"
+                "    SELECT user_id, SUM(amount) AS total_spent\n"
+                "    FROM orders\n"
+                "    GROUP BY user_id\n"
+                "),\n"
+                "user_items AS (\n"
+                "    SELECT o.user_id, COUNT(oi.id) AS total_items\n"
+                "    FROM orders o\n"
+                "    JOIN order_items oi ON o.id = oi.order_id\n"
+                "    GROUP BY o.user_id\n"
+                ")\n"
+                "SELECT u.id, uo.total_spent, ui.total_items\n"
+                "FROM users u\n"
+                "JOIN user_orders uo ON u.id = uo.user_id\n"
+                "JOIN user_items ui ON u.id = ui.user_id;\n"
+                "```"
+            )
         else:
             # Fallback: extract the query from prompt and return it directly
             query_match = re.search(r"Make this SQL query faster:\s*(.*?)\.\s*Here is the schema:", prompt, re.DOTALL)

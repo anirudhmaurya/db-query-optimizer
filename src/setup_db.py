@@ -151,7 +151,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
 
     CREATE TABLE orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
+        user_id INTEGER,
         amount REAL NOT NULL CHECK (amount >= 0),
         status TEXT NOT NULL,
         order_date TEXT NOT NULL,
@@ -245,6 +245,19 @@ def populate_data(
         hire_date = random_date(rng, 2020, 2026)
         emp_records.append((i, dept_id, name, salary, hire_date))
 
+    # Guarantee identical top salaries (ties) within each department for TC-13 (Top-Record Tie Trap)
+    dept_to_indices: Dict[int, List[int]] = {}
+    for idx, emp in enumerate(emp_records):
+        dept_to_indices.setdefault(emp[1], []).append(idx)
+
+    for dept_id, indices in dept_to_indices.items():
+        if len(indices) >= 2:
+            top_salary = 280_000.00 + (dept_id * 500.0)
+            # Give top 2 employees in this department the exact same max salary
+            for top_idx in indices[:2]:
+                e = emp_records[top_idx]
+                emp_records[top_idx] = (e[0], e[1], e[2], top_salary, e[4])
+
     for chunk_start in range(0, len(emp_records), config.batch_size):
         chunk = emp_records[chunk_start : chunk_start + config.batch_size]
         cursor.executemany(
@@ -277,9 +290,13 @@ def populate_data(
     # Reserve top 15% of users (e.g. user_id > 8,500) to NEVER have orders.
     # This guarantees at least 1,500 users with ZERO orders to test The NULL Trap!
     order_user_pool_max = int(config.num_users * 0.85)
-    order_records: List[Tuple[int, int, float, str, str]] = []
+    order_records: List[Tuple[int, Optional[int], float, str, str]] = []
     for i in range(1, config.num_orders + 1):
-        user_id = rng.randint(1, order_user_pool_max)
+        # Insert rows with NULL user_id for Three-Valued Logic Trap (TC-12)
+        if i <= 500:
+            user_id = None
+        else:
+            user_id = rng.randint(1, order_user_pool_max)
         amount = round(rng.uniform(15.0, 1500.0), 2)
         status = rng.choices(
             ORDER_STATUSES,
@@ -558,6 +575,58 @@ def get_benchmark_test_cases() -> List[Dict[str, Any]]:
             ),
             "expected_anti_pattern_explanation": "Scans both order_items and orders, computes row-by-row multiplications dynamically during scan, and groups product IDs in temporary tables.",
             "optimization_hint": "Store computed line totals in a generated column with an index, or pre-index `order_items(order_id, product_id, quantity, unit_price)`."
+        },
+        {
+            "id": "TC-11",
+            "name": "fan_out_trap_duplicate_aggregation",
+            "anti_pattern": "The Fan-Out Trap: Unnested multi-table join causing metric inflation",
+            "description": "Calculates total user spending and total items ordered across users, orders, and order_items. Naive join without pre-aggregation multiplies order amounts by the count of items in each order.",
+            "tables_involved": [
+                "users",
+                "orders",
+                "order_items"
+            ],
+            "query": (
+                "SELECT u.id, SUM(o.amount) as total_spent, COUNT(oi.id) as total_items "
+                "FROM users u "
+                "JOIN orders o ON u.id = o.user_id "
+                "JOIN order_items oi ON o.id = oi.order_id "
+                "GROUP BY u.id;"
+            ),
+            "expected_anti_pattern_explanation": "A naive LLM refactoring without CTE pre-aggregation will double/triple total_spent due to duplicate order_item rows.",
+            "optimization_hint": "Pre-aggregate order_items counts per order in a CTE or derived table before joining orders and aggregating per user."
+        },
+        {
+            "id": "TC-12",
+            "name": "three_valued_logic_null_trap",
+            "anti_pattern": "The Three-Valued Logic Trap: NULL foreign keys breaking NOT IN anti-joins",
+            "description": "Finds users who have never placed an order using NOT EXISTS. Rewriting to NOT IN fails when orders table contains NULL user_id rows due to SQL three-valued logic returning UNKNOWN/empty result set.",
+            "tables_involved": [
+                "users",
+                "orders"
+            ],
+            "query": (
+                "SELECT u.id, u.name FROM users u "
+                "WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id);"
+            ),
+            "expected_anti_pattern_explanation": "A zero-shot model rewriting this to WHERE u.id NOT IN (SELECT user_id FROM orders) will return 0 rows in SQLite because of the NULL values.",
+            "optimization_hint": "Use indexed NOT EXISTS or LEFT JOIN WHERE o.id IS NULL or explicitly add WHERE user_id IS NOT NULL to NOT IN subqueries."
+        },
+        {
+            "id": "TC-13",
+            "name": "top_record_tie_trap_max_salary",
+            "anti_pattern": "The Top-Record Tie Trap: Correlated MAX() subquery with multiple top-earner ties",
+            "description": "Returns all employees who earn the highest salary in their department using a correlated subquery. Naive rewrites using ROW_NUMBER() = 1 drop ties arbitrarily, whereas DENSE_RANK() or window CTEs preserve all tied top earners.",
+            "tables_involved": [
+                "employees"
+            ],
+            "query": (
+                "SELECT e.id, e.department_id, e.salary "
+                "FROM employees e "
+                "WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);"
+            ),
+            "expected_anti_pattern_explanation": "Naive rewrites using ROW_NUMBER() arbitrarily drop tied top-earners unless DENSE_RANK() or window CTEs are correctly constructed.",
+            "optimization_hint": "Use DENSE_RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) in a CTE or window MAX() to retain all tied top earners efficiently."
         }
     ]
 

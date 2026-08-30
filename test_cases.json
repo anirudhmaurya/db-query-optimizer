@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "description": "Benchmark test cases of unoptimized SQL queries for database query optimization engine.",
-  "total_cases": 10,
+  "total_cases": 13,
   "test_cases": [
     {
       "id": "TC-01",
@@ -131,6 +131,45 @@
       "query": "SELECT oi.product_id,        COUNT(DISTINCT oi.order_id) AS total_distinct_orders,        SUM(oi.quantity) AS total_units_sold,        ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_sales_value,        ROUND(AVG(oi.unit_price), 2) AS avg_unit_price FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE (oi.quantity * oi.unit_price) >= 150.0   AND o.status NOT IN ('cancelled', 'refunded') GROUP BY oi.product_id HAVING SUM(oi.quantity * oi.unit_price) > 5000.0 ORDER BY total_sales_value DESC LIMIT 25;",
       "expected_anti_pattern_explanation": "Scans both order_items and orders, computes row-by-row multiplications dynamically during scan, and groups product IDs in temporary tables.",
       "optimization_hint": "Store computed line totals in a generated column with an index, or pre-index `order_items(order_id, product_id, quantity, unit_price)`."
+    },
+    {
+      "id": "TC-11",
+      "name": "fan_out_trap_duplicate_aggregation",
+      "anti_pattern": "The Fan-Out Trap: Unnested multi-table join causing metric inflation",
+      "description": "Calculates total user spending and total items ordered across users, orders, and order_items. Naive join without pre-aggregation multiplies order amounts by the count of items in each order.",
+      "tables_involved": [
+        "users",
+        "orders",
+        "order_items"
+      ],
+      "query": "SELECT u.id, SUM(o.amount) as total_spent, COUNT(oi.id) as total_items FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id GROUP BY u.id;",
+      "expected_anti_pattern_explanation": "A naive LLM refactoring without CTE pre-aggregation will double/triple total_spent due to duplicate order_item rows.",
+      "optimization_hint": "Pre-aggregate order_items counts per order in a CTE or derived table before joining orders and aggregating per user."
+    },
+    {
+      "id": "TC-12",
+      "name": "three_valued_logic_null_trap",
+      "anti_pattern": "The Three-Valued Logic Trap: NULL foreign keys breaking NOT IN anti-joins",
+      "description": "Finds users who have never placed an order using NOT EXISTS. Rewriting to NOT IN fails when orders table contains NULL user_id rows due to SQL three-valued logic returning UNKNOWN/empty result set.",
+      "tables_involved": [
+        "users",
+        "orders"
+      ],
+      "query": "SELECT u.id, u.name FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id);",
+      "expected_anti_pattern_explanation": "A zero-shot model rewriting this to WHERE u.id NOT IN (SELECT user_id FROM orders) will return 0 rows in SQLite because of the NULL values.",
+      "optimization_hint": "Use indexed NOT EXISTS or LEFT JOIN WHERE o.id IS NULL or explicitly add WHERE user_id IS NOT NULL to NOT IN subqueries."
+    },
+    {
+      "id": "TC-13",
+      "name": "top_record_tie_trap_max_salary",
+      "anti_pattern": "The Top-Record Tie Trap: Correlated MAX() subquery with multiple top-earner ties",
+      "description": "Returns all employees who earn the highest salary in their department using a correlated subquery. Naive rewrites using ROW_NUMBER() = 1 drop ties arbitrarily, whereas DENSE_RANK() or window CTEs preserve all tied top earners.",
+      "tables_involved": [
+        "employees"
+      ],
+      "query": "SELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);",
+      "expected_anti_pattern_explanation": "Naive rewrites using ROW_NUMBER() arbitrarily drop tied top-earners unless DENSE_RANK() or window CTEs are correctly constructed.",
+      "optimization_hint": "Use DENSE_RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) in a CTE or window MAX() to retain all tied top earners efficiently."
     }
   ]
 }

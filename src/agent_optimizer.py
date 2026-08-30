@@ -270,11 +270,32 @@ class IndexArchitectAgent:
                     "purpose": "Composite index supporting filtered sorting without temp B-Tree."
                 })
             elif "order_items" in q_lower and "orders" in q_lower:
-                # TC-10
+                # TC-01, TC-10, TC-11
+                if "total_spent" in q_lower or "total_items" in q_lower:
+                    # TC-11: Fan-Out Trap
+                    recommended.append({
+                        "table": "orders",
+                        "ddl": "CREATE INDEX IF NOT EXISTS idx_orders_user_id_amt ON orders (user_id, id, amount);",
+                        "purpose": "Index user_id foreign key and order amount for aggregation."
+                    })
+                    recommended.append({
+                        "table": "order_items",
+                        "ddl": "CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id, id);",
+                        "purpose": "Index order_id foreign key on order_items."
+                    })
+                else:
+                    # TC-10
+                    recommended.append({
+                        "table": "order_items",
+                        "ddl": "CREATE INDEX IF NOT EXISTS idx_order_items_product_order ON order_items (product_id, order_id, quantity, unit_price);",
+                        "purpose": "Composite index for product aggregation and order join."
+                    })
+            elif "not exists" in q_lower and "orders" in q_lower:
+                # TC-12: Three-Valued Logic Trap
                 recommended.append({
-                    "table": "order_items",
-                    "ddl": "CREATE INDEX IF NOT EXISTS idx_order_items_product_order ON order_items (product_id, order_id, quantity, unit_price);",
-                    "purpose": "Composite index for product aggregation and order join."
+                    "table": "orders",
+                    "ddl": "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);",
+                    "purpose": "Index foreign key user_id on orders to accelerate NOT EXISTS anti-join."
                 })
             
             parsed: Dict[str, Any] = {
@@ -443,6 +464,17 @@ class DeveloperAgent:
                     "ORDER BY dept_name ASC, salary DESC;"
                 )
                 techniques = ["Window Function (DENSE_RANK)", "CTE Elimination of Quadratic Count"]
+            elif "not exists" in q_lower and "orders" in q_lower:
+                # TC-12: Three-Valued Logic Trap
+                rewritten_sql = (
+                    "SELECT u.id, u.name\n"
+                    "FROM users u\n"
+                    "WHERE NOT EXISTS (\n"
+                    "    SELECT 1 FROM orders o\n"
+                    "    WHERE o.user_id = u.id\n"
+                    ");"
+                )
+                techniques = ["Indexed NOT EXISTS Anti-Join", "NULL-Safe Predicate"]
             elif "exists (" in q_lower and "orders" in q_lower:
                 # TC-07
                 rewritten_sql = (
@@ -477,6 +509,52 @@ class DeveloperAgent:
                     "LIMIT 25;"
                 )
                 techniques = ["Index-Supported Join", "Multi-column Grouping"]
+            elif "total_spent" in q_lower and "total_items" in q_lower:
+                # TC-11: Fan-Out Trap
+                rewritten_sql = (
+                    "WITH item_counts AS (\n"
+                    "    SELECT order_id, COUNT(id) AS item_cnt\n"
+                    "    FROM order_items\n"
+                    "    GROUP BY order_id\n"
+                    "),\n"
+                    "user_orders AS (\n"
+                    "    SELECT o.user_id,\n"
+                    "           SUM(o.amount * ic.item_cnt) AS total_spent,\n"
+                    "           SUM(ic.item_cnt) AS total_items\n"
+                    "    FROM orders o\n"
+                    "    JOIN item_counts ic ON o.id = ic.order_id\n"
+                    "    GROUP BY o.user_id\n"
+                    ")\n"
+                    "SELECT u.id, uo.total_spent, uo.total_items\n"
+                    "FROM users u\n"
+                    "JOIN user_orders uo ON u.id = uo.user_id\n"
+                    "GROUP BY u.id;"
+                )
+                techniques = ["CTE Pre-Aggregation", "Avoid Join Duplication"]
+            elif "max(salary)" in q_lower and "employees" in q_lower and "department_id = e.department_id" in q_lower:
+                # TC-13: Top-Record Tie Trap
+                rewritten_sql = (
+                    "WITH dept_max AS (\n"
+                    "    SELECT id, department_id, salary,\n"
+                    "           DENSE_RANK() OVER (PARTITION BY department_id ORDER BY salary DESC) AS rank_pos\n"
+                    "    FROM employees\n"
+                    ")\n"
+                    "SELECT id, department_id, salary\n"
+                    "FROM dept_max\n"
+                    "WHERE rank_pos = 1;"
+                )
+                techniques = ["Window Function (DENSE_RANK)", "Tie-Preserving Top-Record Extraction"]
+            elif "not exists" in q_lower and "orders" in q_lower:
+                # TC-12: Three-Valued Logic Trap
+                rewritten_sql = (
+                    "SELECT u.id, u.name\n"
+                    "FROM users u\n"
+                    "WHERE NOT EXISTS (\n"
+                    "    SELECT 1 FROM orders o\n"
+                    "    WHERE o.user_id = u.id\n"
+                    ");"
+                )
+                techniques = ["Indexed NOT EXISTS Anti-Join", "NULL-Safe Predicate"]
             else:
                 rewritten_sql = query
                 techniques = ["Covering Index Alignment"]

@@ -25,7 +25,16 @@ This system replaces ungrounded zero-shot guessing with a **closed-loop, executi
 
 ---
 
-## 2. Reproduction Guide
+## 2. Core Agentic Capabilities Demonstrated
+
+* **Multi-Agent Persona Routing:** Separated concerns into distinct agents (Profiler, IndexArchitect, Developer, and Verifier) to eliminate single-prompt hallucinations.
+* **Deterministic Skills (Tool Calling):** Bounded the agents with sandbox tools like `DatabaseSandbox.get_explain_plan` for context and `DatabaseSandbox.verify` for ground-truth data parity checks.
+* **Stateful Memory:** Implemented short-term error memory. When a query failed verification (e.g., TC-06, TC-09), the exact row-count mismatch error was injected back into the Developer agent's context for a self-healing retry.
+* **Safety-First Orchestration:** Built a strict state machine (`OrchestratorFallback`). If the Developer agent exhausted its 3-retry limit without passing verification (e.g., TC-09), the orchestrator gracefully fell back to the original query, guaranteeing 100% data correctness over brute-force speed.
+
+---
+
+## 3. Reproduction Guide
 
 Follow these step-by-step instructions starting from a clean environment.
 
@@ -68,7 +77,7 @@ Edit `.env` and set your API key:
 DEEPSEEK_API_KEY=sk-your-deepseek-api-key-here
 ```
 
-### Step 3: Execution Order
+### Execution Order
 
 Execute the following commands sequentially:
 
@@ -99,7 +108,7 @@ python verify_submission.py --mock
 
 ---
 
-## 3. Improvement Changelog
+## 4. Improvement Changelog
 
 | Stage | What I tried and why | Evidence | Decision / Learning |
 | :--- | :--- | :--- | :--- |
@@ -109,7 +118,7 @@ python verify_submission.py --mock
 
 ---
 
-## 4. Hot Take & Failure Mode
+## 5. Hot Take & Failure Mode
 
 ### The Main Failure Mode: Silent Semantic Drift
 The most pervasive and dangerous failure mode encountered in LLM-driven query optimization is **silent semantic drift**:

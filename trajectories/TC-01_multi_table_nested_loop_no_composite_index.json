@@ -3,7 +3,7 @@
   "test_case_name": "multi_table_nested_loop_no_composite_index",
   "anti_pattern": "Multi-table nested loop joins without composite indexes",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:30:23Z",
+  "start_time": "2026-08-30T14:35:03Z",
   "original_query": "SELECT u.id AS user_id, u.name, u.region, o.id AS order_id, o.amount, oi.product_id, oi.quantity, oi.unit_price FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id WHERE u.region = 'North America'   AND o.status = 'completed'   AND oi.quantity >= 3   AND oi.unit_price > 50.0 ORDER BY o.amount DESC LIMIT 50;",
   "stages": {
     "profiler": {
@@ -160,7 +160,7 @@
         "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);",
         "CREATE INDEX IF NOT EXISTS idx_order_items_order_qty ON order_items (order_id, quantity, unit_price);"
       ],
-      "elapsed_sec": 0.029
+      "elapsed_sec": 0.032
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -183,9 +183,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 3.485,
-            "optimized_time_ms": 3.307,
-            "speedup_ratio": 1.05,
+            "original_time_ms": 3.579,
+            "optimized_time_ms": 3.329,
+            "speedup_ratio": 1.08,
             "original_row_count": 50,
             "optimized_row_count": 50,
             "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -432,9 +432,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
-        "original_time_ms": 3.485,
-        "optimized_time_ms": 3.307,
-        "speedup_ratio": 1.05,
+        "original_time_ms": 3.579,
+        "optimized_time_ms": 3.329,
+        "speedup_ratio": 1.08,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "error_details": null,

@@ -3,7 +3,7 @@
   "test_case_name": "top_record_tie_trap_max_salary",
   "anti_pattern": "The Top-Record Tie Trap: Correlated MAX() subquery with multiple top-earner ties",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:30:24Z",
+  "start_time": "2026-08-30T14:35:03Z",
   "original_query": "SELECT e.id, e.department_id, e.salary FROM employees e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department_id = e.department_id);",
   "stages": {
     "profiler": {
@@ -123,7 +123,7 @@
       "applied_indexes": [
         "CREATE INDEX IF NOT EXISTS idx_emp_dept_salary ON employees (department_id, salary DESC);"
       ],
-      "elapsed_sec": 0.002
+      "elapsed_sec": 0.003
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -147,9 +147,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 0.998,
-            "optimized_time_ms": 2.219,
-            "speedup_ratio": 0.45,
+            "original_time_ms": 1.013,
+            "optimized_time_ms": 2.209,
+            "speedup_ratio": 0.46,
             "original_row_count": 40,
             "optimized_row_count": 40,
             "verification_message": "Result sets match perfectly as multiset (40 rows).",
@@ -371,9 +371,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (40 rows).",
-        "original_time_ms": 0.998,
-        "optimized_time_ms": 2.219,
-        "speedup_ratio": 0.45,
+        "original_time_ms": 1.013,
+        "optimized_time_ms": 2.209,
+        "speedup_ratio": 0.46,
         "original_row_count": 40,
         "optimized_row_count": 40,
         "error_details": null,

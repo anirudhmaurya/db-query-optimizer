@@ -19,7 +19,7 @@ This document cross-references our project deliverables against the official mic
 | Rubric Area | Points | How This Project Meets the Standard |
 | :--- | :---: | :--- |
 | **Problem & User Value** | 15 | Addresses query degradation and LLM hallucination risks for DBAs and backend engineers. |
-| **Agent Solution & Engineering** | 30 | Multi-agent design (Profiler, Index Architect, Developer, Verifier) with closed-loop memory, tool calling (`EXPLAIN`, Sandbox verification), and automated fallback. |
+| **Agent Solution & Engineering** | 30 | Utilized all core capabilities: Multi-agent personas (Profiler/Architect/Developer/Verifier), Skills (SQLite sandbox tool calling), Memory (Error-injection for retry loops), and Orchestration (Hard 3-retry limit with automatic original-query fallback). |
 | **End to End Quality** | 20 | Complete modular codebase with sandbox safety, transaction isolation, error handling, and production-grade SQL output. |
 | **Measured Improvement** | 15 | **100.0% Agent Accuracy vs. 76.9% Baseline Accuracy** on 13 complex test cases; average speedup of **1.50x** (with a max of **6.15x**) with 15 synthesized indexes. |
 | **Reproducibility** | 15 | Deterministic local SQLite setup with automated script (`./setup.sh`) and isolated virtual environment. |

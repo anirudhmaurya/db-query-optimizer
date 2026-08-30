@@ -3,7 +3,7 @@
   "test_case_name": "unindexed_wildcard_search",
   "anti_pattern": "Unindexed LIKE with leading wildcard on JSON payload and names",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:30:24Z",
+  "start_time": "2026-08-30T14:35:03Z",
   "original_query": "SELECT e.id AS event_id, e.user_id, u.name, e.event_type, e.created_at, e.payload FROM events e JOIN users u ON e.user_id = u.id WHERE e.payload LIKE '%\"status\": \"failed\"%'   AND e.payload LIKE '%\"response_status\": 500%'   AND u.name LIKE '%Smith%' ORDER BY e.created_at DESC LIMIT 50;",
   "stages": {
     "profiler": {
@@ -117,7 +117,7 @@
       "applied_indexes": [
         "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
       ],
-      "elapsed_sec": 0.015
+      "elapsed_sec": 0.016
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -140,9 +140,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 46.65,
-            "optimized_time_ms": 39.831,
-            "speedup_ratio": 1.17,
+            "original_time_ms": 39.531,
+            "optimized_time_ms": 39.947,
+            "speedup_ratio": 0.99,
             "original_row_count": 50,
             "optimized_row_count": 50,
             "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -173,7 +173,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.087
+          "elapsed_sec": 0.08
         }
       ]
     }
@@ -322,9 +322,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
-        "original_time_ms": 46.65,
-        "optimized_time_ms": 39.831,
-        "speedup_ratio": 1.17,
+        "original_time_ms": 39.531,
+        "optimized_time_ms": 39.947,
+        "speedup_ratio": 0.99,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "error_details": null,

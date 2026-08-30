@@ -3,7 +3,7 @@
   "test_case_name": "unindexed_sort_pagination_scan",
   "anti_pattern": "Unindexed order by and pagination scan on filtered event types",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:30:24Z",
+  "start_time": "2026-08-30T14:35:03Z",
   "original_query": "SELECT id, user_id, event_type, created_at, payload FROM events WHERE event_type = 'checkout_initiated' ORDER BY created_at DESC LIMIT 50 OFFSET 1000;",
   "stages": {
     "profiler": {
@@ -93,7 +93,7 @@
       "applied_indexes": [
         "CREATE INDEX IF NOT EXISTS idx_events_created_user ON events (created_at DESC, user_id);"
       ],
-      "elapsed_sec": 0.018
+      "elapsed_sec": 0.015
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -116,9 +116,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 11.63,
-            "optimized_time_ms": 11.647,
-            "speedup_ratio": 1.0,
+            "original_time_ms": 8.447,
+            "optimized_time_ms": 8.635,
+            "speedup_ratio": 0.98,
             "original_row_count": 50,
             "optimized_row_count": 50,
             "verification_message": "Result sets match perfectly as multiset (50 rows).",
@@ -137,7 +137,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.024
+          "elapsed_sec": 0.018
         }
       ]
     }
@@ -262,9 +262,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (50 rows).",
-        "original_time_ms": 11.63,
-        "optimized_time_ms": 11.647,
-        "speedup_ratio": 1.0,
+        "original_time_ms": 8.447,
+        "optimized_time_ms": 8.635,
+        "speedup_ratio": 0.98,
         "original_row_count": 50,
         "optimized_row_count": 50,
         "error_details": null,

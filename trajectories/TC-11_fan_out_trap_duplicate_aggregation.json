@@ -3,7 +3,7 @@
   "test_case_name": "fan_out_trap_duplicate_aggregation",
   "anti_pattern": "The Fan-Out Trap: Unnested multi-table join causing metric inflation",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:30:24Z",
+  "start_time": "2026-08-30T14:35:03Z",
   "original_query": "SELECT u.id, SUM(o.amount) as total_spent, COUNT(oi.id) as total_items FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id GROUP BY u.id;",
   "stages": {
     "profiler": {
@@ -184,9 +184,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 21.24,
-            "optimized_time_ms": 16.417,
-            "speedup_ratio": 1.29,
+            "original_time_ms": 20.513,
+            "optimized_time_ms": 16.681,
+            "speedup_ratio": 1.23,
             "original_row_count": 7809,
             "optimized_row_count": 7809,
             "verification_message": "Result sets match perfectly as multiset (7809 rows).",
@@ -301,7 +301,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.054
+          "elapsed_sec": 0.051
         }
       ]
     }
@@ -493,9 +493,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (7809 rows).",
-        "original_time_ms": 21.24,
-        "optimized_time_ms": 16.417,
-        "speedup_ratio": 1.29,
+        "original_time_ms": 20.513,
+        "optimized_time_ms": 16.681,
+        "speedup_ratio": 1.23,
         "original_row_count": 7809,
         "optimized_row_count": 7809,
         "error_details": null,

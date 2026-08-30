@@ -3,7 +3,7 @@
   "test_case_name": "correlated_exists_vs_indexed_join",
   "anti_pattern": "Correlated EXISTS subquery with non-indexed filter conditions",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:30:24Z",
+  "start_time": "2026-08-30T14:35:03Z",
   "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;",
   "stages": {
     "profiler": {
@@ -154,9 +154,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 82.52,
-            "optimized_time_ms": 83.447,
-            "speedup_ratio": 0.99,
+            "original_time_ms": 82.537,
+            "optimized_time_ms": 82.375,
+            "speedup_ratio": 1.0,
             "original_row_count": 100,
             "optimized_row_count": 100,
             "verification_message": "Result sets match perfectly as multiset (100 rows).",
@@ -199,7 +199,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.167
+          "elapsed_sec": 0.166
         }
       ]
     }
@@ -361,9 +361,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (100 rows).",
-        "original_time_ms": 82.52,
-        "optimized_time_ms": 83.447,
-        "speedup_ratio": 0.99,
+        "original_time_ms": 82.537,
+        "optimized_time_ms": 82.375,
+        "speedup_ratio": 1.0,
         "original_row_count": 100,
         "optimized_row_count": 100,
         "error_details": null,

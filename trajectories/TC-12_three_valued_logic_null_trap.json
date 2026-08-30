@@ -3,7 +3,7 @@
   "test_case_name": "three_valued_logic_null_trap",
   "anti_pattern": "The Three-Valued Logic Trap: NULL foreign keys breaking NOT IN anti-joins",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:21:10Z",
+  "start_time": "2026-08-30T14:30:24Z",
   "original_query": "SELECT u.id, u.name FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id);",
   "stages": {
     "profiler": {
@@ -61,8 +61,8 @@
           }
         ],
         "critical_tables": [
-          "u",
-          "o"
+          "o",
+          "u"
         ],
         "has_temp_btree_sort": false,
         "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
@@ -154,9 +154,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 2.526,
-            "optimized_time_ms": 2.318,
-            "speedup_ratio": 1.09,
+            "original_time_ms": 2.443,
+            "optimized_time_ms": 2.292,
+            "speedup_ratio": 1.07,
             "original_row_count": 1975,
             "optimized_row_count": 1975,
             "verification_message": "Result sets match perfectly as multiset (1975 rows).",
@@ -270,8 +270,8 @@
           }
         ],
         "critical_tables": [
-          "u",
-          "o"
+          "o",
+          "u"
         ],
         "has_temp_btree_sort": false,
         "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions."
@@ -361,9 +361,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (1975 rows).",
-        "original_time_ms": 2.526,
-        "optimized_time_ms": 2.318,
-        "speedup_ratio": 1.09,
+        "original_time_ms": 2.443,
+        "optimized_time_ms": 2.292,
+        "speedup_ratio": 1.07,
         "original_row_count": 1975,
         "optimized_row_count": 1975,
         "error_details": null,

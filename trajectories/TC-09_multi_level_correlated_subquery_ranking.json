@@ -3,7 +3,7 @@
   "test_case_name": "multi_level_correlated_subquery_ranking",
   "anti_pattern": "Correlated subquery ranking simulation instead of DENSE_RANK()",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:21:10Z",
+  "start_time": "2026-08-30T14:30:24Z",
   "original_query": "SELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;",
   "stages": {
     "profiler": {
@@ -98,7 +98,7 @@
         "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
         "raw_prompt": "You are an expert Database Profiler & Query Performance Analyzer. Analyze the following SQL query, execution plan, and schema to identify critical performance bottlenecks.\n\n### DATABASE SCHEMA:\nCREATE TABLE departments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        dept_name TEXT NOT NULL,\n        budget REAL NOT NULL CHECK (budget >= 0)\n    );\n\nCREATE TABLE employees (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        department_id INTEGER NOT NULL,\n        name TEXT NOT NULL,\n        salary REAL NOT NULL CHECK (salary >= 0),\n        hire_date TEXT NOT NULL,\n        FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE events (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER NOT NULL,\n        event_type TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE order_items (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        order_id INTEGER NOT NULL,\n        product_id INTEGER NOT NULL,\n        quantity INTEGER NOT NULL CHECK (quantity > 0),\n        unit_price REAL NOT NULL CHECK (unit_price >= 0),\n        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        user_id INTEGER,\n        amount REAL NOT NULL CHECK (amount >= 0),\n        status TEXT NOT NULL,\n        order_date TEXT NOT NULL,\n        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE\n    );\n\nCREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name TEXT NOT NULL,\n        region TEXT NOT NULL,\n        signup_date TEXT NOT NULL\n    );\n\n### SQL QUERY:\nSELECT e.id, e.name, d.dept_name, e.salary FROM employees e JOIN departments d ON e.department_id = d.id WHERE (     SELECT COUNT(*)     FROM employees e2     WHERE e2.department_id = e.department_id       AND e2.salary > e.salary ) < 3 ORDER BY d.dept_name ASC, e.salary DESC;\n\n### EXPLAIN QUERY PLAN NODES:\n[\n  {\n    \"id\": 4,\n    \"parent_id\": 0,\n    \"detail\": \"SCAN e\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 7,\n    \"parent_id\": 0,\n    \"detail\": \"CORRELATED SCALAR SUBQUERY 1\",\n    \"operation_type\": \"SUBQUERY\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 12,\n    \"parent_id\": 7,\n    \"detail\": \"SCAN e2\",\n    \"operation_type\": \"SCAN\",\n    \"table\": \"e2\",\n    \"index\": null,\n    \"is_scan\": true,\n    \"is_search\": false,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 29,\n    \"parent_id\": 0,\n    \"detail\": \"SEARCH d USING INTEGER PRIMARY KEY (rowid=?)\",\n    \"operation_type\": \"SEARCH\",\n    \"table\": \"d\",\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": true,\n    \"uses_temp_btree\": false,\n    \"uses_covering_index\": false\n  },\n  {\n    \"id\": 40,\n    \"parent_id\": 0,\n    \"detail\": \"USE TEMP B-TREE FOR ORDER BY\",\n    \"operation_type\": \"TEMP_BTREE\",\n    \"table\": null,\n    \"index\": null,\n    \"is_scan\": false,\n    \"is_search\": false,\n    \"uses_temp_btree\": true,\n    \"uses_covering_index\": false\n  }\n]\n\nReturn a strictly valid JSON object with the following schema:\n{\n  \"identified_bottlenecks\": [\n    {\"type\": \"FULL_TABLE_SCAN\" | \"CORRELATED_SUBQUERY\" | \"NON_SARGABLE_PREDICATE\" | \"TEMP_BTREE_SORT\" | \"UNINDEXED_JOIN\",\n     \"table\": \"table_name_or_null\",\n     \"detail\": \"Detailed explanation of why this node is slow\",\n     \"severity\": \"HIGH\" | \"MEDIUM\" | \"LOW\"}\n  ],\n  \"critical_tables\": [\"list\", \"of\", \"tables\"],\n  \"has_temp_btree_sort\": boolean,\n  \"optimization_strategy\": \"High level strategy recommendation\"\n}\nReturn ONLY the JSON object."
       },
-      "elapsed_sec": 0.0
+      "elapsed_sec": 0.001
     },
     "index_architect": {
       "architect_report": {
@@ -208,9 +208,9 @@
             "error_stage": "RESULT_MISMATCH",
             "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
             "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.",
-            "original_time_ms": 14.813,
-            "optimized_time_ms": 3.998,
-            "speedup_ratio": 3.71,
+            "original_time_ms": 17.259,
+            "optimized_time_ms": 5.713,
+            "speedup_ratio": 3.02,
             "original_row_count": 60,
             "optimized_row_count": 80,
             "candidate_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
@@ -301,7 +301,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.019
+          "elapsed_sec": 0.024
         },
         {
           "attempt": 2,
@@ -320,9 +320,9 @@
             "error_stage": "RESULT_MISMATCH",
             "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
             "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.",
-            "original_time_ms": 14.903,
-            "optimized_time_ms": 3.933,
-            "speedup_ratio": 3.79,
+            "original_time_ms": 16.663,
+            "optimized_time_ms": 4.705,
+            "speedup_ratio": 3.54,
             "original_row_count": 60,
             "optimized_row_count": 80,
             "candidate_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
@@ -413,7 +413,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.019
+          "elapsed_sec": 0.022
         },
         {
           "attempt": 3,
@@ -432,9 +432,9 @@
             "error_stage": "RESULT_MISMATCH",
             "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
             "feedback_for_developer": "Result mismatch: Row count mismatch: original produced 60 rows, optimized produced 80 rows.\nOriginal returned 60 rows, but your optimized query returned 80 rows. Ensure filter conditions (especially string cases and date ranges) produce identical data.",
-            "original_time_ms": 14.984,
-            "optimized_time_ms": 3.966,
-            "speedup_ratio": 3.78,
+            "original_time_ms": 15.878,
+            "optimized_time_ms": 4.03,
+            "speedup_ratio": 3.94,
             "original_row_count": 60,
             "optimized_row_count": 80,
             "candidate_sql": "WITH ranked_employees AS (\n    SELECT e.id, e.name, d.dept_name, e.salary,\n           DENSE_RANK() OVER(PARTITION BY e.department_id ORDER BY e.salary DESC) AS rank_pos\n    FROM employees e\n    JOIN departments d ON e.department_id = d.id\n)\nSELECT id, name, dept_name, salary\nFROM ranked_employees\nWHERE rank_pos <= 3\nORDER BY dept_name ASC, salary DESC;",
@@ -525,7 +525,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.019
+          "elapsed_sec": 0.02
         }
       ]
     }
@@ -741,9 +741,9 @@
         "status": "FAILED",
         "is_valid": null,
         "verification_message": null,
-        "original_time_ms": 14.813,
-        "optimized_time_ms": 3.998,
-        "speedup_ratio": 3.71,
+        "original_time_ms": 17.259,
+        "optimized_time_ms": 5.713,
+        "speedup_ratio": 3.02,
         "original_row_count": 60,
         "optimized_row_count": 80,
         "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
@@ -775,9 +775,9 @@
         "status": "FAILED",
         "is_valid": null,
         "verification_message": null,
-        "original_time_ms": 14.903,
-        "optimized_time_ms": 3.933,
-        "speedup_ratio": 3.79,
+        "original_time_ms": 16.663,
+        "optimized_time_ms": 4.705,
+        "speedup_ratio": 3.54,
         "original_row_count": 60,
         "optimized_row_count": 80,
         "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
@@ -809,9 +809,9 @@
         "status": "FAILED",
         "is_valid": null,
         "verification_message": null,
-        "original_time_ms": 14.984,
-        "optimized_time_ms": 3.966,
-        "speedup_ratio": 3.78,
+        "original_time_ms": 15.878,
+        "optimized_time_ms": 4.03,
+        "speedup_ratio": 3.94,
         "original_row_count": 60,
         "optimized_row_count": 80,
         "error_details": "Row count mismatch: original produced 60 rows, optimized produced 80 rows.",
@@ -843,9 +843,9 @@
         "status": "PASSED",
         "is_valid": true,
         "verification_message": "Optimization failed after 3 retries. Falling back to original SQL for safety.",
-        "original_time_ms": 14.873,
-        "optimized_time_ms": 14.922,
-        "speedup_ratio": 1.0
+        "original_time_ms": 16.356,
+        "optimized_time_ms": 15.376,
+        "speedup_ratio": 1.06
       },
       "retries_triggered": 3,
       "llm_output": {

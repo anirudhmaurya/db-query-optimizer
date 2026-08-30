@@ -65,7 +65,6 @@ cp .env.example .env
 ```
 Edit `.env` and set your API key:
 ```bash
-# DeepSeek API Key (Get from: https://platform.deepseek.com/api_keys)
 DEEPSEEK_API_KEY=sk-your-deepseek-api-key-here
 ```
 
@@ -74,7 +73,7 @@ DEEPSEEK_API_KEY=sk-your-deepseek-api-key-here
 Execute the following commands sequentially:
 
 ```bash
-# 1. Initialize SQLite benchmark database with realistic synthetic data across 10 tables
+# 1. Initialize SQLite benchmark database with realistic synthetic data across tables
 python setup_db.py --force
 
 # 2. Run Zero-Shot Baseline Evaluator
@@ -90,7 +89,7 @@ python evaluate.py
 python verify_submission.py
 ```
 
-> **Expected Runtime**: Under **2 minutes** for the complete 10-query benchmark suite.
+> **Expected Runtime**: Under **2 minutes** for the complete 13-query benchmark suite.
 
 ### Offline / Mock Execution (Zero API Costs)
 For instantaneous offline testing without API keys, append `--mock` to any command:
@@ -104,9 +103,9 @@ python verify_submission.py --mock
 
 | Stage | What I tried and why | Evidence | Decision / Learning |
 | :--- | :--- | :--- | :--- |
-| **Stage 1: Zero-Shot DBA Prompting (Baseline)** | Issued a single ungrounded DBA optimization prompt (*"You are a DBA. Make this query faster..."*) directly to the LLM without schema inspection or plan analysis. | Produced frequent hallucinations, dropped `HAVING` filters, or returned identical SQL. Achieved zero physical index utilization and failed on anti-patterns requiring schema-level changes. | **Learning**: LLMs cannot reliably optimize database performance in a vacuum without direct visibility into physical cost plans (`EXPLAIN`) and table indexes. |
+| **Stage 1: Zero-Shot DBA Prompting (Baseline)** | Issued a single ungrounded DBA optimization prompt (*"You are an SQL assistant. Rewrite the following SQL query to make it run faster on SQLite..."*) directly to the LLM without schema inspection or plan analysis. | Achieved **76.9% accuracy (10/13)**. Failed on **TC-11 (Fan-Out Trap)**, **TC-12 (Three-Valued Logic Trap)**, and **TC-13 (Top-Record Tie Trap)**. Achieved zero physical index utilization. | **Learning**: LLMs cannot reliably optimize database performance in a vacuum without direct visibility into physical cost plans (`EXPLAIN`) and table indexes. |
 | **Stage 2: Single Agent with Profiling Tool (`EXPLAIN`)** | Connected a single LLM agent to `EXPLAIN QUERY PLAN` outputs and database DDL schemas, asking it to diagnose bottlenecks and propose both indexes and SQL rewrites. | The agent correctly identified `SCAN` vs `SEARCH` operations, but suffered cognitive overload when attempting to simultaneously design composite indexes, fix syntax, and restructure queries in a single completion pass. | **Decision**: Decoupled responsibilities into specialized agent roles: **ProfilerAgent** for bottleneck isolation, **IndexArchitectAgent** for DDL indexing, and **DeveloperAgent** for query restructuring. |
-| **Stage 3: Multi-Agent System with Verifier Retry-Loop** | Engineered a 4-agent orchestrator (`Profiler` $\rightarrow$ `IndexArchitect` $\rightarrow$ `Developer` $\rightarrow$ `Verifier`). The Verifier tests candidate SQL in an isolated sandbox, validates row counts and multiset equivalence, and feeds diagnostic errors back into a closed-loop retry loop (up to 3 attempts). | Achieved up to **44x speedup** on quadratic subqueries (TC-03: `97.76ms` $\rightarrow$ `2.22ms`), successfully recovered from syntax and row-count mismatches on attempt 2, and achieved **90.0% verified accuracy** with comprehensive physical index acceleration. | **Learning**: Closed-loop diagnostic error feedback is essential. When a developer agent generates a syntax error or semantic mismatch, providing the exact verification diff allows it to self-correct within 1 retry. |
+| **Stage 3: Multi-Agent System with Verifier Retry-Loop** | Engineered a 4-agent orchestrator (`Profiler` → `IndexArchitect` → `Developer` → `Verifier`). The Verifier tests candidate SQL in an isolated sandbox, validates row counts and multiset equivalence, and feeds diagnostic errors back into a closed-loop retry loop (up to 3 attempts). | Achieved **100.0% verified accuracy (13/13)**, synthesized **15 B-Tree indexes**, and reached an average speedup of **1.50x** (with up to **6.15x** / **47.79x** peak on quadratic subqueries). | **Learning**: Closed-loop diagnostic error feedback is essential. When a developer agent generates a syntax error or semantic mismatch, providing the exact verification diff allows it to self-correct within 1 retry. |
 
 ---
 
@@ -114,11 +113,13 @@ python verify_submission.py --mock
 
 ### The Main Failure Mode: Silent Semantic Drift
 The most pervasive and dangerous failure mode encountered in LLM-driven query optimization is **silent semantic drift**:
-- The model produces a rewritten query that is syntactically flawless and executes with blistering speed (e.g., 20x faster), but silently corrupts business logic.
-- Common examples observed during testing include:
-  - Dropping `WHERE` conditions containing non-SARGable functions rather than mathematically converting them to range filters.
-  - Converting a `LEFT OUTER JOIN` into an `INNER JOIN`, silently dropping non-matching entities.
-  - Changing `COUNT(DISTINCT col)` to `COUNT(col)` to avoid sorting overhead.
+- The model produces a rewritten query that is syntactically flawless and executes with blistering speed, but silently corrupts business logic.
+- Prominent semantic failure modes observed during testing include:
+  1. **The Fan-Out Trap (TC-11)**: Naive multi-table joins without CTE pre-aggregation multiplying aggregated sums (`SUM(amount)`) due to duplicate child rows.
+  2. **The Three-Valued Logic Trap (TC-12)**: Rewriting `NOT EXISTS` to `WHERE u.id NOT IN (SELECT user_id FROM orders)`, returning 0 rows in SQLite when the table contains `NULL` foreign keys.
+  3. **The Top-Record Tie Trap (TC-13)**: Rewriting correlated subqueries with `ROW_NUMBER() = 1` which arbitrarily drops tied top earners instead of using `DENSE_RANK()`.
+  4. **The Non-SARGable Trap (TC-02)**: Dropping `WHERE` conditions containing date functions rather than mathematically converting them to range filters.
+  5. **The NULL Trap (TC-06)**: Converting a `LEFT JOIN ... WHERE right.id IS NULL` into an `INNER JOIN`, dropping non-matching entities.
 
 Without automated mathematical verification, these faulty queries would pass code reviews and corrupt analytics or transactional integrity in production.
 

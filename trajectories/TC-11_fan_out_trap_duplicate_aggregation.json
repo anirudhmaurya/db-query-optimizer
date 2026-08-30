@@ -3,7 +3,7 @@
   "test_case_name": "fan_out_trap_duplicate_aggregation",
   "anti_pattern": "The Fan-Out Trap: Unnested multi-table join causing metric inflation",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T14:21:10Z",
+  "start_time": "2026-08-30T14:30:24Z",
   "original_query": "SELECT u.id, SUM(o.amount) as total_spent, COUNT(oi.id) as total_items FROM users u JOIN orders o ON u.id = o.user_id JOIN order_items oi ON o.id = oi.order_id GROUP BY u.id;",
   "stages": {
     "profiler": {
@@ -160,7 +160,7 @@
         "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status, amount);",
         "CREATE INDEX IF NOT EXISTS idx_order_items_order_qty ON order_items (order_id, quantity, unit_price);"
       ],
-      "elapsed_sec": 0.029
+      "elapsed_sec": 0.028
     },
     "developer_verifier_loop": {
       "total_attempts": 1,
@@ -184,9 +184,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 26.206,
-            "optimized_time_ms": 18.017,
-            "speedup_ratio": 1.45,
+            "original_time_ms": 21.24,
+            "optimized_time_ms": 16.417,
+            "speedup_ratio": 1.29,
             "original_row_count": 7809,
             "optimized_row_count": 7809,
             "verification_message": "Result sets match perfectly as multiset (7809 rows).",
@@ -301,7 +301,7 @@
               }
             ]
           },
-          "elapsed_sec": 0.059
+          "elapsed_sec": 0.054
         }
       ]
     }
@@ -493,9 +493,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (7809 rows).",
-        "original_time_ms": 26.206,
-        "optimized_time_ms": 18.017,
-        "speedup_ratio": 1.45,
+        "original_time_ms": 21.24,
+        "optimized_time_ms": 16.417,
+        "speedup_ratio": 1.29,
         "original_row_count": 7809,
         "optimized_row_count": 7809,
         "error_details": null,

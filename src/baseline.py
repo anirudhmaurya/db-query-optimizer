@@ -20,6 +20,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+# Ensure repository root is in sys.path
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from src.tools import DatabaseExecutionError, DatabaseSandbox
 
 logger = logging.getLogger(__name__)

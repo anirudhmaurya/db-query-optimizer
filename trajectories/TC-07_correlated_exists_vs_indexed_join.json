@@ -3,7 +3,7 @@
   "test_case_name": "correlated_exists_vs_indexed_join",
   "anti_pattern": "Correlated EXISTS subquery with non-indexed filter conditions",
   "model": "mock-orchestrator",
-  "start_time": "2026-08-30T12:59:11Z",
+  "start_time": "2026-08-30T13:04:16Z",
   "original_query": "SELECT u.id, u.name, u.region, u.signup_date FROM users u WHERE EXISTS (     SELECT 1 FROM orders o     WHERE o.user_id = u.id       AND o.status = 'completed'       AND o.amount > 750.0       AND o.order_date >= '2025-01-01' ) ORDER BY u.id ASC LIMIT 100;",
   "stages": {
     "profiler": {
@@ -61,8 +61,8 @@
           }
         ],
         "critical_tables": [
-          "o",
-          "u"
+          "u",
+          "o"
         ],
         "has_temp_btree_sort": false,
         "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions.",
@@ -154,9 +154,9 @@
             "error_stage": null,
             "error_details": null,
             "feedback_for_developer": null,
-            "original_time_ms": 84.666,
-            "optimized_time_ms": 84.568,
-            "speedup_ratio": 1.0,
+            "original_time_ms": 84.916,
+            "optimized_time_ms": 84.041,
+            "speedup_ratio": 1.01,
             "original_row_count": 100,
             "optimized_row_count": 100,
             "verification_message": "Result sets match perfectly as multiset (100 rows).",
@@ -270,8 +270,8 @@
           }
         ],
         "critical_tables": [
-          "o",
-          "u"
+          "u",
+          "o"
         ],
         "has_temp_btree_sort": false,
         "optimization_strategy": "Apply targeted covering indexes and convert quadratic subqueries into CTE/Window functions."
@@ -361,9 +361,9 @@
         "status": "PASSED",
         "is_valid": null,
         "verification_message": "Result sets match perfectly as multiset (100 rows).",
-        "original_time_ms": 84.666,
-        "optimized_time_ms": 84.568,
-        "speedup_ratio": 1.0,
+        "original_time_ms": 84.916,
+        "optimized_time_ms": 84.041,
+        "speedup_ratio": 1.01,
         "original_row_count": 100,
         "optimized_row_count": 100,
         "error_details": null,
